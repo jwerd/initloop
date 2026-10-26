@@ -10,11 +10,15 @@ and prove the useful workflow works. A fresh setup attempt reveals the missing p
 failed checks feed the next repair. It uses the model you already have.
 
 ```mermaid
-flowchart LR
-    discover["Discover<br/>stack + gaps"] --> repair["Repair<br/>local setup"]
-    repair --> verify["Verify<br/>real workflows"]
-    verify -->|Needs work| discover
-    verify -->|Ready| ready["Working app<br/>+ runbook"]
+flowchart TB
+    subgraph loop[" "]
+        direction LR
+        discover["Discover<br/>stack + gaps"] --> repair["Repair<br/>local setup"]
+        repair --> verify["Verify<br/>real workflows"]
+        verify -->|Needs work| discover
+    end
+    loop -->|Ready| ready["Working app + runbook"]
+    style loop fill:transparent,stroke:transparent
 ```
 
 **You get:** local services and synthetic data where needed, repeatable dev commands,
