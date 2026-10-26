@@ -17,13 +17,19 @@ REFERENCE = Path(os.environ.get('INITLOOP_TEST_SHUTDOWN_REFERENCE',
 SERVER = '''import os
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler,HTTPServer
+from socketserver import TCPServer
+class NumericHTTPServer(HTTPServer):
+    def server_bind(self):
+        # Numeric loopback fixtures must not wait on ambient reverse DNS.
+        TCPServer.server_bind(self)
+        self.server_name,self.server_port=self.server_address[:2]
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(503 if self.path=="/error" else 200)
         self.end_headers()
         self.wfile.write(b"synthetic owned server")
     def log_message(self,*args):pass
-server=HTTPServer((os.environ.get("HOST","127.0.0.1"),int(os.environ["PORT"])),Handler)
+server=NumericHTTPServer((os.environ.get("HOST","127.0.0.1"),int(os.environ["PORT"])),Handler)
 Path(os.environ["PIDFILE"]).write_text(str(os.getpid()))
 server.serve_forever()
 '''
