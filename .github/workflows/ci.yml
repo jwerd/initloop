@@ -1,0 +1,72 @@
+name: CI
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, python: '3.9'}
+          - {os: ubuntu-latest, python: '3.12'}
+          - {os: ubuntu-latest, python: '3.13'}
+          - {os: macos-latest, python: '3.12'}
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '${{ matrix.python }}'}
+      - name: Unit and native lifecycle contracts
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONPATH: skills/initloop/scripts
+        run: python -m unittest discover -s tests -v
+      - run: python scripts/check_skill.py skills/initloop
+      - run: python scripts/check_publication.py --root . --history
+  docker-boundary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: docker pull python:3.12-alpine
+      - name: Actual Docker boundary
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONPATH: skills/initloop/scripts
+          INITLOOP_DOCKER_IMAGE: python:3.12-alpine
+        run: python -m unittest discover -s tests -p test_docker_integration.py -v
+  distribution:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/setup-node@v4
+        with: {node-version: '22.20.0'}
+      - run: python scripts/build_release.py --root . --output dist
+      - name: Reproducible archive
+        run: |
+          python scripts/build_release.py --root . --output "$RUNNER_TEMP/rebuild"
+          cmp dist/initloop-0.1.0-alpha.1.zip "$RUNNER_TEMP/rebuild/initloop-0.1.0-alpha.1.zip"
+          cmp dist/initloop-0.1.0-alpha.1.manifest.json "$RUNNER_TEMP/rebuild/initloop-0.1.0-alpha.1.manifest.json"
+      - name: Installer from distributed archive
+        env:
+          DISABLE_TELEMETRY: '1'
+          DO_NOT_TRACK: '1'
+        run: |
+          mkdir "$RUNNER_TEMP/installed-project" "$RUNNER_TEMP/extracted"
+          python -m zipfile -e dist/initloop-0.1.0-alpha.1.zip "$RUNNER_TEMP/extracted"
+          cd "$RUNNER_TEMP/installed-project"
+          npx --yes skills@1.7.4 add "$RUNNER_TEMP/extracted" --skill initloop --agent codex --copy --yes
+          python .agents/skills/initloop/scripts/initloop.py --help
+          npx --yes skills@1.7.4 remove initloop --yes
+          test ! -e .agents/skills/initloop/SKILL.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: initloop-alpha
+          path: dist/*
