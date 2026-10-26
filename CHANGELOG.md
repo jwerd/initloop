@@ -2,7 +2,7 @@
 
 ## 0.1.0-alpha.1
 
-Initial public alpha, prepared from the private DevGap prototype.
+Initial public alpha, prepared from the private prototype.
 
 - Source-cited stack discovery and runner selection that preserves existing native/Compose conventions.
 - Explicit native disposable execution and owned native foreground development lifecycle; optional constrained Docker execution.
