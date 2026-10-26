@@ -17,7 +17,9 @@ def _files(root):
     """Do not follow links, including directory links, or read credential files."""
     result = {}
     for directory, dirs, names in os.walk(root, followlinks=False):
-        dirs[:] = sorted(d for d in dirs if d not in _IGNORED and not _SECRET.search(d)
+        relative = Path(directory).relative_to(root).parts
+        dirs[:] = sorted(d for d in dirs if not (d == 'skills' and relative and relative[-1] in {'.agents', '.claude', '.codex'})
+                         and d not in _IGNORED and not _SECRET.search(d)
                          and not (Path(directory) / d).is_symlink())
         for name in sorted(names):
             path = Path(directory) / name
@@ -125,7 +127,7 @@ def audit(root: Path) -> dict:
                                  'status': 'inferred', 'detail': 'Declared dependency has no matching documentation reference; purpose and fallback need review.'})
     dependencies = {rel: hashlib.sha256(raw).hexdigest() for rel, raw in files.items()}
     digest = hashlib.sha256(json.dumps(dependencies, sort_keys=True).encode()).hexdigest()
-    from .stack import discover
+    from .stack import discover, configuration_resources
     stack = discover(root, files)
     revision = None
     dirty = None
@@ -138,7 +140,9 @@ def audit(root: Path) -> dict:
     except (OSError, subprocess.SubprocessError):
         pass
     return {'schema_version': 1, 'readiness': 'unverified', 'snapshot_digest': digest,
-            'stack': stack, 'repository': {'revision': revision, 'dirty': dirty},
+            'stack': stack, 'environment_names': stack['environment_names'],
+            'environment_evidence': stack['environment_evidence'], 'resources': configuration_resources(stack),
+            'repository': {'revision': revision, 'dirty': dirty},
             'instructions': instructions, 'commands': commands, 'services': services, 'tools': tools,
             'findings': findings, 'dependencies': dependencies,
             'limitations': ['Static discovery does not execute commands or verify service/tool access.',
@@ -191,7 +195,22 @@ def _stack_document(report):
         if not rows:
             lines.append('- No supported static evidence found; investigate consumers/configuration. This is not proof of absence or inaccessibility.')
         lines.append('')
-    lines.extend(['## Existing runner evidence and choice', ''])
+    lines.extend(['## Source configuration names', ''])
+    for row in stack.get('environment_evidence', []):
+        lines.append('- `' + _text(row['name']) + '` at ' + _source(row) + '; name only; value and runtime availability unverified.')
+    if not stack.get('environment_evidence'):
+        lines.append('- No supported literal environment-name evidence found; dynamic reads and unsupported source remain unknown.')
+    lines.extend(['', '## API contract operations', ''])
+    for contract in stack.get('contracts', []):
+        lines.append('- `' + _text(contract['name']) + '` version `' + _text(contract.get('version') or 'unknown') +
+                     '` at ' + _source(contract) + '; parse status `' + _text(contract['status']) + '`; runtime unverified.')
+        for operation in contract['operations']:
+            lines.append('  - `' + _text(operation['method']) + ' ' + _text(operation['path']) + '` at ' + _source(operation) + '; declared, not probed.')
+        for detail in contract.get('limitations', []):
+            lines.append('  - Limit: ' + _text(detail))
+    if not stack.get('contracts'):
+        lines.append('- No supported contract evidence found; inspect contract files and consumers directly.')
+    lines.extend(['', '## Existing runner evidence and choice', ''])
     decision = stack.get('runner_decision', {})
     lines.append('Decision: `' + _text(decision.get('status', 'unknown')) + '`; ' + _text(decision.get('reason', 'Runner suitability remains unknown.')))
     if decision.get('preferred'):
@@ -259,11 +278,12 @@ def _runbook_document(report):
                   '- Setup/build/install: select only commands supported by the repository and the chosen runner; record exact successful command, working directory and prerequisites.',
                   '- Start: identify the app and each required worker/dependency. Before launch, record which resources already exist and which exact new PID/service/container/network/volume names this session will own. Avoid occupied ports. Do not replace or stop unrelated resources.',
                   '- Running state: check useful requests/data and actual worker/dependency behavior. A live process or health200 does not prove readiness. Keep the app running when requested; publish its local URL plus exact stop/log commands and ownership identifiers.',
-                  '- Stop: use the recorded owned process/service identity and preserve its data. Do not guess by process name, kill arbitrary listeners, prune Docker globally, or run project-wide teardown against pre-existing shared resources.',
+                  '- Stop: document the actual launch mode. For foreground runs record Ctrl-C plus exact ownership; for background runs record the PID/service identity at launch, the exact owned stop/wait command and listener-closure proof. Use the recorded owned process/service identity and preserve its data. Do not guess by process name, kill arbitrary listeners, prune Docker globally, or run project-wide teardown against pre-existing shared resources.',
                   '- Logs/debug: use observed project log commands or owned resource logs, redact credentials and inspect failures. Record log locations with access limits.',
-                  '- Restart: stop/start only owned application resources and independently assert intended records survive. Disposable baseline/verification runs do not establish persistent development behavior.',
+                  '- Restart: stop/start only owned application resources and independently assert intended records survive, using IDs returned by create responses rather than hardcoded IDs. Disposable baseline/verification runs do not establish persistent development behavior.',
                   '- Optional controller support: `python3 <installed-skill>/scripts/initloop.py dev start/status/logs/stop/reset` can track a native foreground process through an external ledger; see the skill controller reference. It is not a sandbox or Compose manager. Only wire its owned data directory into an app when supported by the app configuration.',
-                  '- Reset/seed: no destructive reset is authorized by this proposal. Before an explicit reset, verify exact local ownership and data scope, preserve unrelated resources and state which synthetic records are expected afterward. A project name or environment label alone is insufficient.',
+                  '- Setup acceptance: compare row counts and seed identity before/after repeated setup in the same database, including extra user-created records. Do not hardcode a total row count or record ID from an example.',
+                  '- Reset/seed: untested reset remains unverified, never a confirmed capability. No destructive reset is authorized by this proposal. Before an explicit reset, verify exact local ownership and data scope, preserve unrelated resources and state which synthetic records are expected afterward. A project name or environment label alone is insufficient.',
                   '', '## Workflow, errors and a small change', '',
                   'Freeze a useful input/output assertion from source/tests or the user objective. Verify persisted business results, setup reruns, representative dependency/auth/timeout errors and a reversible edit/test/reload or rebuild. Retain expected failures and passing evidence; do not weaken existing tests.',
                   'Document any runnable local substitute with its interface, deterministic scenarios, inferred schema and fidelity limits. A missing source/credential and a proven inaccessible external service are different findings; no private production equivalence is implied.', '',

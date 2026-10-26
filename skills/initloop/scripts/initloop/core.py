@@ -313,8 +313,13 @@ class Inventory:
                             resources.append({'kind':kind,'configuration':key,'source':name,'state':'inferred','strategy':'needs contract inspection','workflows':[]})
             if p.name in {'artisan','Dockerfile','compose.yaml','compose.yml','docker-compose.yml','Makefile'} or any(x in p.parts for x in ('migrations','routes','seeders','factories')):
                 findings.append({'kind':'workflow-evidence','evidence':name,'state':'observed'})
-        from .stack import discover
-        return {'stack':discover(self.root),'schema':1,'components':components,'findings':findings,'environment_names':sorted(env),'resources':resources,'commands':commands,'limitations':['Static discovery is incomplete; resource edges and commands require runtime verification.']}
+        from .stack import discover, configuration_resources
+        stack = discover(self.root)
+        return {'stack': stack, 'schema': 1, 'components': components, 'findings': findings,
+                'environment_names': sorted(env | set(stack['environment_names'])),
+                'environment_evidence': stack['environment_evidence'],
+                'resources': configuration_resources(stack), 'commands': commands,
+                'limitations': ['Static discovery is incomplete; resource edges and commands require runtime verification.']}
 
 
 class Run:

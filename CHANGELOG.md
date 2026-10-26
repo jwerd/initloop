@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.0-alpha.3
+
+Focused discovery and runbook hardening candidate; publication is separate.
+
+- Recognize supported Python stdlib HTTP constructors and literal source environment reads using bounded AST inspection without executing the project.
+- Report OpenAPI/Swagger versions and supported operations with source locations; JSON and a deliberately limited YAML subset never copy examples/defaults or fetch references.
+- Align audit/workflow environment and contract evidence; aggregate repeated database source lines while retaining named connections, services and version differences.
+- Exclude installed harness skills from app discovery and clarify static parsing limits without changing runner safety or automatic selection.
+- Require runbooks to use response IDs, before/after row counts, exact owned foreground/background stops and actual scoped reset/reseed evidence; untested reset remains unverified.
+
 ## 0.1.0-alpha.2
 
 Hardening candidate; release publication is separate from this version change.
