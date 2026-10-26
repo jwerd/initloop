@@ -9,17 +9,7 @@ It’s a skill for your coding agent: discover what the project needs, repair th
 and prove the useful workflow works. A fresh setup attempt reveals the missing pieces;
 failed checks feed the next repair. It uses the model you already have.
 
-```mermaid
-flowchart TB
-    subgraph loop[" "]
-        direction LR
-        discover["Discover<br/>stack + gaps"] --> repair["Repair<br/>local setup"]
-        repair --> verify["Verify<br/>real workflows"]
-        verify -->|Needs work| discover
-    end
-    loop -->|Ready| ready["Working app + runbook"]
-    style loop fill:transparent,stroke:transparent
-```
+![Initloop: inspect the repo, fill the gaps, run real workflows, and repeat until the app works locally.](assets/initloop-loop.svg)
 
 **You get:** local services and synthetic data where needed, repeatable dev commands,
 and a runbook grounded in what actually passed. Working native and Compose conventions stay in place.
