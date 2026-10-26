@@ -39,6 +39,17 @@ print("unprivileged; input read-only; no inherited secret/socket; egress blocked
         self.assertEqual((self.source/'input.txt').read_text(),'unchanged')
         self.assertFalse((self.source/'local.txt').exists())
 
+    def test_structured_credentials_are_redacted_from_real_evidence(self):
+        code = ('import json; print(json.dumps({"password":"synthetic-password-marker",'
+                '"nested":{"access_token":"synthetic-token-marker"},"ok":"visible"}))')
+        result = self.backend.execute(self.source, self.image, ['python', '-c', code], 20)
+        self.assertEqual(result['exit_code'], 0, result)
+        self.assertEqual(result['cleanup'], 'removed')
+        self.assertNotIn('synthetic-password-marker', result['stdout'])
+        self.assertNotIn('synthetic-token-marker', result['stdout'])
+        self.assertIn('visible', result['stdout'])
+        self.assertIn('[REDACTED]', result['stdout'])
+
     def test_actual_timeout_is_cleaned_and_classified(self):
         result=self.backend.execute(self.source,self.image,['python','-c','import time; time.sleep(30)'],2)
         self.assertEqual(result['outcome'],'timeout',result)

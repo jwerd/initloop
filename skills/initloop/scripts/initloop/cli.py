@@ -17,7 +17,7 @@ def main(argv=None):
     create=sub.add_parser('begin',help='freeze contract and isolated baseline'); create.add_argument('project',type=Path); create.add_argument('--runs',type=Path,required=True); create.add_argument('--contract',type=Path,required=True); create.add_argument('--include-dirty',action='store_true')
     execute=sub.add_parser('execute',help='bounded project command in explicit native or constrained Docker runtime'); execute.add_argument('workspace',type=Path); execute.add_argument('--image'); execute.add_argument('--runner',choices=['docker','native'],default='docker'); execute.add_argument('--timeout',type=int,default=60); execute.add_argument('argv',nargs=argparse.REMAINDER)
     baseline=sub.add_parser('baseline',help='run frozen acceptance against baseline'); baseline.add_argument('run',type=Path); baseline.add_argument('--image'); baseline.add_argument('--runner',choices=['docker','native'],default='docker')
-    repair=sub.add_parser('repair',help='generate isolated patch from JSON path/content mapping'); repair.add_argument('run',type=Path); repair.add_argument('--files',type=Path,required=True)
+    repair=sub.add_parser('repair',help='generate isolated patch from JSON path/text or explicit content/mode mapping'); repair.add_argument('run',type=Path); repair.add_argument('--files',type=Path,required=True)
     verify=sub.add_parser('verify',help='run frozen acceptance twice from fresh runtime state'); verify.add_argument('run',type=Path); verify.add_argument('--image'); verify.add_argument('--runner',choices=['docker','native'],default='docker')
     report=sub.add_parser('report'); report.add_argument('run',type=Path)
     cancel=sub.add_parser('cancel'); cancel.add_argument('run',type=Path)

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.0-alpha.2
+
+Hardening candidate; release publication is separate from this version change.
+
+- Preserve foreground service ownership after supervisor loss; refuse reset/restart while cleanup is unproven.
+- Recheck frozen baseline contents and executable modes before constructing repairs.
+- Build repairs transactionally, retain failure evidence, and generate applicable Git patches including missing final newlines and explicit executable entrypoints.
+- Accept computed credential-loading expressions while screening literal credentials; redact common structured JSON credential fields in retrieved evidence.
+- Add targeted recovery/CLI regressions and repeatable statement/branch coverage including supervisor subprocesses, with development-only tooling and CI reports.
+
 ## 0.1.0-alpha.1
 
 Initial public alpha, prepared from the private prototype.

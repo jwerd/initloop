@@ -19,16 +19,38 @@ Open a feature branch and pull request. Include the problem, resulting behavior,
 
 Report security vulnerabilities privately as described in SECURITY.md. Ordinary bugs and feature requests belong in Issues with a minimal synthetic reproduction and redacted logs.
 
+## Coverage
+
+Coverage is development-only; it is not installed with the skill. In an isolated
+Python environment, install `coverage==7.10.7`, then run:
+
+```sh
+INITLOOP_DOCKER_IMAGE=python:3.12-alpine python scripts/measure_coverage.py --output "$(mktemp -d)"
+```
+
+Prepare the trusted Docker image first, or omit the image variable for native-only
+coverage (`--min-statements 85 --min-branches 70`, matching the CI matrix). The full
+Docker-enabled suite requires 89% statement and 75% branch coverage. These floors
+protect the measured baseline without treating coverage as correctness evidence.
+The report includes the runtime package, per-module metrics and Python supervisor
+subprocesses through a temporary isolated interpreter startup hook. It excludes
+packaging scripts, the launcher shim and Python inside Docker containers. SIGKILL
+cannot flush a process's coverage data. JSON, XML and summary reports go to the
+new external output directory; prior evidence is never overwritten. CI uploads
+these reports for each platform and the Docker-enabled suite. Full synthetic
+applications and live agent evaluation remain external; neither percentage gates
+nor unit tests certify broad framework or real-provider fidelity.
+
 ## Installation maintenance
 
 Installation is project-scoped by default. Use `--agent codex` or `--agent claude-code` to select directly; add `--global` for user scope. The installer normally symlinks a shared copy; use `--copy` for independent copies. Save local edits before replacing an installation.
 
 ### Pin, update or remove
 
-Pin the alpha instead of tracking the default branch:
+After alpha.2 is published, pin its tag instead of tracking the default branch (alpha.1 remains the published release until then):
 
 ```sh
-npx skills add https://github.com/jwerd/initloop/tree/v0.1.0-alpha.1/skills/initloop --agent codex
+npx skills add https://github.com/jwerd/initloop/tree/v0.1.0-alpha.2/skills/initloop --agent codex
 ```
 
 For unpinned installations:
