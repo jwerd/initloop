@@ -34,6 +34,15 @@ class ReleaseTests(unittest.TestCase):
         self.builder = load('build_release')
         self.checker = load('check_publication')
 
+    def test_readme_artwork_allowlist_is_exact_and_scanned(self):
+        for name in ('initloop-loop.svg', 'initloop-logo.svg'):
+            path = 'assets/' + name
+            self.assertTrue(self.checker.allowed_path(path))
+            self.assertEqual(self.checker.content_findings(path, b'<svg/>'), [])
+            self.assertTrue(self.checker.content_findings(path, b'<svg>/Users/' + b'example/private</svg>'))
+        for path in ('assets/other.svg', 'assets/key.txt', 'assets/nested/initloop-logo.svg'):
+            self.assertFalse(self.checker.allowed_path(path))
+
     def build(self, name='out'):
         return self.builder.build_release(self.root, Path(self.tmp.name) / name)
 
