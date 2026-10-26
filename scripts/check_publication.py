@@ -21,6 +21,8 @@ def allowed_path(name):
         return False
     if len(parts) == 1:
         return name in ROOT_FILES
+    if parts[0] == 'assets':
+        return len(parts) == 2 and parts[1] in {'initloop-loop.svg', 'initloop-logo.svg'}
     if parts[0] == 'scripts':
         return len(parts) == 2 and parts[1] in ROOT_SCRIPTS
     if parts[0] == 'tests':

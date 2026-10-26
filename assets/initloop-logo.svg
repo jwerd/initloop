@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1370 360" width="1370" height="360">
+  <rect width="1370" height="360" rx="24" fill="#0d1117"/>
+  <title>InitLoop wordmark with mark glyphs</title>
+  <!-- Monospace stack keeps letter advance predictable (0.602em). -->
+  <text x="10" y="260" font-family="DejaVu Sans Mono, Menlo, Consolas, monospace"
+        font-size="280" font-weight="500" fill="#FFFFFF">initl</text>
+  <text x="1190" y="260" font-family="DejaVu Sans Mono, Menlo, Consolas, monospace"
+        font-size="280" font-weight="500" fill="#FFFFFF">p</text>
+  <!-- The mark, defined once and reused for both 'o' slots.
+       Each instance is the 512-square mark scaled to one character
+       advance (168px) and centered on the x-height band. -->
+  <defs>
+    <g id="mark">
+      <path d="M 401 324 A 160 160 0 1 1 359 133"
+            fill="none" stroke="#B4FF00" stroke-width="52" stroke-linecap="butt"/>
+      <path d="M 401 168 L 392 93 L 326 173 Z" fill="#B4FF00"/>
+      <path d="M 212 212 L 252 252 L 212 292"
+            fill="none" stroke="#B4FF00" stroke-width="30"
+            stroke-linecap="butt" stroke-linejoin="miter"/>
+      <path d="M 272 268 L 344 268 L 344 296 L 272 296 Z" fill="#B4FF00"/>
+    </g>
+  </defs>
+  <!-- First 'o' slot, center (937,183) -->
+  <use href="#mark" transform="translate(853,99) scale(0.328125)"/>
+  <!-- Second 'o' slot, center (1105,183) -->
+  <use href="#mark" transform="translate(1021,99) scale(0.328125)"/>
+</svg>

@@ -1,4 +1,4 @@
-# Initloop
+<h1><img src="assets/initloop-logo.svg" alt="Initloop" width="480"></h1>
 
 ### Clone the repo. Close the gaps. Get it running.
 
