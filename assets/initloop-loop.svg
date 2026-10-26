@@ -14,8 +14,8 @@
     <path d="M112 178H354 M432 178H674 M752 178H854" stroke="url(#line)" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
     <g fill="#101c2d" stroke="#69e3c2" stroke-width="2"><circle cx="78" cy="178" r="19"/><circle cx="398" cy="178" r="19"/><circle cx="718" cy="178" r="19"/></g>
     <g fill="#69e3c2" font-size="14" font-weight="700" text-anchor="middle"><text x="78" y="183">1</text><text x="398" y="183">2</text><text x="718" y="183">3</text></g>
-    <g fill="#f4f7fc" font-size="23" font-weight="650"><text x="58" y="231">Read the contracts</text><text x="378" y="231">Build locally</text><text x="698" y="231">Run real workflows</text></g>
-    <g fill="#a4b2c8" font-size="15"><text x="58" y="258">Schemas. Migrations. API clients.</text><text x="378" y="258">Databases. Seed data. Local APIs.</text><text x="698" y="258">Verify requests and persistence.</text></g>
+    <g fill="#f4f7fc" font-size="23" font-weight="650"><text x="58" y="231">Read the contracts</text><text x="378" y="231">Build locally</text><text x="698" y="231">Run workflows</text></g>
+    <g fill="#a4b2c8" font-size="15"><text x="58" y="258">Schemas. Migrations. API clients.</text><text x="378" y="258">Databases. Seed data. Local APIs.</text><text x="698" y="258">Requests. Persistence.</text></g>
     <path d="M855 178H882Q904 178 904 200V282Q904 303 882 303H422Q398 303 398 279" fill="none" stroke="#8ba9ff" stroke-width="2" marker-end="url(#arrow)"/>
     <rect x="510" y="289" width="285" height="26" rx="13" fill="#18243b"/>
     <text x="652" y="307" fill="#bdcbff" font-size="13" font-weight="600" text-anchor="middle">Failed check? Feed it into the next repair.</text>
