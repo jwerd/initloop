@@ -19,13 +19,24 @@ def _credential_key(name):
     return bool(re.search(r'key|token|secret|password|passwd|credential', name, re.I))
 
 
-def _redact_json_value(value, depth):
+class _RedactionLimit(ValueError):
+    pass
+
+
+def _redact_json_value(value, depth, structure_depth=0):
+    if structure_depth >= 64:
+        raise _RedactionLimit('structured output nesting limit')
     if isinstance(value, dict):
-        return {key: '[REDACTED]' if _credential_key(key) else _redact_json_value(item, depth)
+        return {key: '[REDACTED]' if _credential_key(key) else
+                _redact_json_value(item, depth, structure_depth + 1)
                 for key, item in value.items()}
     if isinstance(value, list):
-        return [_redact_json_value(item, depth) for item in value]
-    if isinstance(value, str) and depth < 8:
+        return [_redact_json_value(item, depth, structure_depth + 1) for item in value]
+    if isinstance(value, str):
+        if depth >= 8:
+            # Encoded output beyond the inspected budget is omitted rather than
+            # returned unchecked with a possible credential still inside it.
+            return '[REDACTED: encoded output nesting limit]'
         return _redact_json_fragments(value, depth + 1)
     return value
 
@@ -42,13 +53,18 @@ def _redact_json_fragments(text, depth=0):
             continue
         try:
             value, length = decoder.raw_decode(text[position:])
-        except (ValueError, RecursionError):
+            sanitized = _redact_json_value(value, depth)
+            rendered = (text[position:position + length] if sanitized == value else
+                        json.dumps(sanitized, ensure_ascii=False))
+        except (_RedactionLimit, RecursionError):
+            # Decoder, traversal, comparison or encoder limits must never turn
+            # log collection into an exception or echo the uninspected suffix.
+            return ''.join(output) + '[REDACTED: structured output nesting limit]'
+        except ValueError:
             output.append(text[position])
             position += 1
             continue
-        sanitized = _redact_json_value(value, depth)
-        output.append(text[position:position + length] if sanitized == value else
-                      json.dumps(sanitized, ensure_ascii=False))
+        output.append(rendered)
         position += length
     return ''.join(output)
 
@@ -80,14 +96,15 @@ def _placeholder(value):
             bool(re.match(r'^(?:example|synthetic|initloop|local|placeholder)(?:$|[-_:./])', lower)))
 
 
-def _computed_value(value):
+def _computed_value(value, declaration=False):
     # A lexical expression boundary, shared by languages rather than per-language
     # exemptions. Bare configuration scalars remain screened. This is not a parser
     # or proof that arbitrary source contains no credentials.
     identifier = r'[A-Za-z_$][A-Za-z0-9_$]*'
     member = identifier + r'(?:(?:\.|::|\?\.)' + identifier + r')*'
     return bool(re.match(member + r'\s*[([]', value) or
-                re.fullmatch(identifier + r'(?:(?:\.|::|\?\.)' + identifier + r')+\s*;?\s*', value))
+                (declaration and re.fullmatch(
+                    identifier + r'(?:(?:\.|::|\?\.)' + identifier + r')+\s*;?\s*', value)))
 
 
 def secret_like(text):
@@ -115,7 +132,14 @@ def secret_like(text):
             if not _placeholder(literal_value):
                 return True
             continue
-        if _computed_value(value):
+        # A dotted scalar in an environment/config assignment can be a literal
+        # token. Member access alone is treated as source only when this same
+        # assignment has explicit variable-declaration syntax; no token-shape
+        # exemption (JWT or otherwise) is used. Calls/subscripts are expressions.
+        line_start = text.rfind('\n', 0, match.start()) + 1
+        prefix = text[line_start:match.start()]
+        declaration = bool(re.search(r'(?:^|[;{}])\s*(?:export\s+)?(?:const|let|var)\s+$', prefix))
+        if _computed_value(value, declaration):
             continue
         scalar = re.split(r'[\s,;)}\]]', value, maxsplit=1)[0]
         if not _placeholder(scalar):

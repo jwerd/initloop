@@ -80,6 +80,22 @@ class CoreHardeningTests(unittest.TestCase):
         result = run.patch({'auth.js': examples[3]})
         self.assertEqual((Path(result['workspace']) / 'auth.js').read_text(), examples[3])
 
+    def test_dotted_configuration_scalars_remain_literal_credentials(self):
+        values = ('production.secret.value',
+                  'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c3ludGhldGljc2lnbmF0dXJl')
+        run = self.freeze()
+        for index, value in enumerate(values):
+            text = 'API_TOKEN=' + value
+            with self.subTest(value=value):
+                self.assertTrue(secret_like(text))
+                self.put('.env.example', text)
+                with self.assertRaises(PolicyError):
+                    snapshot(self.source, self.parent / ('blocked-config-' + str(index)))
+                with self.assertRaises(PolicyError):
+                    run.patch({'.env.example': text})
+        self.assertFalse(secret_like('const token = request.headers.authorization;'))
+        self.assertFalse(secret_like('token = os.getenv("TOKEN")'))
+
     def test_literal_credentials_stay_rejected_in_common_formats(self):
         for value in ('token=private-literal-value', 'password="private-literal-value"',
                       '{"access_token":"private-literal-value"}',
@@ -180,6 +196,19 @@ class CoreHardeningTests(unittest.TestCase):
         run.patch({'README.md': 'last\n'})
         with self.assertRaises(PolicyError):
             run.patch({'README.md': 'over budget\n'})
+
+    def test_redaction_bounds_deep_structures_without_errors_or_marker_leaks(self):
+        marker = 'synthetic-deep-output-marker'
+        payload = '{"password":"' + marker + '"}'
+        encoded = payload
+        for _ in range(12):
+            encoded = json.dumps(encoded)
+        for text in ('[' * 1100 + payload + ']' * 1100,
+                     '{"nested":' * 90 + payload + '}' * 90, encoded):
+            with self.subTest(size=len(text)):
+                output = redact(text)
+                self.assertNotIn(marker, output)
+                self.assertIn('REDACTED', output)
 
     def test_redaction_preserves_nonsecret_json_formatting(self):
         text = 'INFO {"count":1,"nested":{"message":"unchanged"}}'
