@@ -3,9 +3,11 @@
 This deliberately is not a YAML/TOML interpreter: unsupported syntax remains unknown.
 Values and free-form command contents are not copied into the report.
 """
+import io
 import json
 import re
 import shlex
+import tokenize
 from pathlib import Path
 
 
@@ -66,6 +68,39 @@ def _safe_name(value):
     return isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9_@./:-]{1,120}', value)
 
 
+def _python_configuration_names(text, reads):
+    """Real identifier tokens plus AST-proven env names; never string defaults."""
+    identifiers = set()
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(text).readline):
+            if token.type == tokenize.ERRORTOKEN and not token.string.isspace():
+                identifiers.clear()
+                break
+            if token.type == tokenize.NAME:
+                identifiers.add((token.start[0], token.string))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        identifiers.clear()
+    identifiers.update((row['line'], row['name']) for row in reads)
+    return identifiers
+
+
+def configuration_resources(stack):
+    """Names and locations only; values/defaults never enter dependency evidence."""
+    rows = []
+    for item in stack.get('environment_evidence', []):
+        key = item['name']
+        kind = next((kind for kind, pattern in (
+            ('database', r'DB|DATABASE'), ('queue', r'QUEUE|BROKER'),
+            ('cache', r'REDIS|CACHE'), ('storage', r'S3|STORAGE|BUCKET'),
+            ('identity', r'OAUTH|AUTH|OIDC'), ('mail', r'MAIL|SMTP'),
+            ('api', r'API|URL|ENDPOINT')) if re.search(pattern, key, re.I)), None)
+        if kind:
+            rows.append({'kind': kind, 'configuration': key, 'source': item['source'],
+                         'line': item['line'], 'state': 'inferred',
+                         'strategy': 'needs contract inspection', 'workflows': []})
+    return rows
+
+
 def discover(root, files=None):
     """Return static stack evidence and runner choices; all runtime observations unknown.
 
@@ -76,14 +111,29 @@ def discover(root, files=None):
         from .workflow import _files
         files = _files(Path(root).resolve(strict=True))
     report = {'schema_version': 1, **{key: [] for key in _FIELDS},
-              'runners': [], 'services': [], 'relationships': [], 'unknowns': [], 'conflicts': []}
+              'runners': [], 'services': [], 'relationships': [], 'unknowns': [], 'conflicts': [],
+              'contracts': [], 'environment_evidence': [], 'environment_names': []}
     seen = set()
+    database_rows = {}
 
     def fact(group, name, version, source, line=1, kind='declared', **extra):
         value = {'name': name, 'version': _version(version), 'version_kind': kind,
                  'source': source, 'line': line,
                  'evidence': {'source': source, 'line': line, 'kind': kind},
                  'runtime_observed': None, **extra}
+        if group == 'databases':
+            # Merge repeated references only when every semantic field matches.
+            # Configuration/service/client/version fields keep connections distinct.
+            identity = {key: item for key, item in value.items() if key not in {'line', 'evidence'}}
+            key = json.dumps(identity, sort_keys=True)
+            if key in database_rows:
+                row = database_rows[key]
+                row['lines'] = sorted(set(row['lines'] + [line]))
+                row['evidence']['lines'] = row['lines']
+                return
+            value['lines'] = [line]
+            value['evidence']['lines'] = [line]
+            database_rows[key] = value
         key = json.dumps([group, value], sort_keys=True)
         if key not in seen:
             report[group].append(value)
@@ -109,7 +159,7 @@ def discover(root, files=None):
         if row not in report['runners']:
             report['runners'].append(row)
 
-    def image(value, source, line):
+    def image(value, source, line, service=None):
         # Report only recognized official image family + a version-shaped tag.
         match = re.fullmatch(r'(?:docker\.io/library/)?([a-z0-9-]+)(?::([^\s@]+))?(?:@sha256:[0-9a-f]{64})?', value.strip('"\''))
         if not match or match.group(1) not in _IMAGES:
@@ -118,13 +168,42 @@ def discover(root, files=None):
         tag = match.group(2)
         numeric = re.match(r'(\d+(?:\.\d+)*)', tag or '')
         version = numeric.group(1) if numeric else None
-        fact(group, label, version, source, line)
+        fact(group, label, version, source, line, **({'service': service} if service else {}))
         safe_tag = tag if tag and re.fullmatch(r'[0-9][A-Za-z0-9_.-]{0,60}', tag) else None
         return match.group(1) + (':' + safe_tag if safe_tag else ''), version
 
     for source, raw in sorted(files.items()):
         text = raw.decode('utf-8', errors='replace') if isinstance(raw, bytes) else str(raw)
         path, name = Path(source), Path(source).name
+        contract = None
+        configuration_names = None
+        if path.suffix.lower() == '.py':
+            from .python_source import discover_python
+            python = discover_python(text, source)
+            for server in python['app_servers']:
+                fact('app_servers', server['name'], None, source, server['line'],
+                     detail=server.get('detail', 'Static Python HTTP constructor reference; runtime unverified.'))
+            report['environment_evidence'].extend(python['environment'])
+            report['unknowns'].extend(python['unknowns'])
+            configuration_names = _python_configuration_names(text, python['environment'])
+        if name in {'.env.example', '.env.sample', '.env.template'}:
+            configuration_names = set()
+            for line, content in enumerate(text.splitlines(), 1):
+                match = re.match(r'\s*([A-Z][A-Z0-9_]*)\s*=', content)
+                if match:
+                    configuration_names.add((line, match.group(1)))
+                    report['environment_evidence'].append({'name': match.group(1), 'source': source,
+                                                           'line': line, 'access': 'template declaration'})
+        if path.suffix.lower() in {'.json', '.yaml', '.yml'}:
+            from .contracts import discover_contract
+            contract = discover_contract(text, source)
+            if contract:
+                report['contracts'].append(contract)
+                fact('apis', contract['name'], contract.get('version'), source, contract.get('line', 1),
+                     operations=contract['operations'], contract_status=contract['status'],
+                     detail='Contract declaration only; request/response behavior and access unverified.')
+                for detail in contract.get('limitations', []):
+                    report['unknowns'].append({'source': source, 'line': contract.get('line', 1), 'detail': detail})
         if name == 'package.json':
             doc = _json(text)
             fact('runtimes', 'node', doc.get('engines', {}).get('node') if isinstance(doc.get('engines'), dict) else None, source,
@@ -239,10 +318,17 @@ def discover(root, files=None):
                 if re.search(r'\b(?:python(?:3)?\s+-m\s+|npm\s+(?:run\s+)?(?:start|dev)|uvicorn\s+|docker\s+compose\s+|make\s+(?:start|dev|serve))', line):
                     runner('documented-command', source, lineno, detail='Read the referenced command in context; arguments are not copied.')
 
+        # Contracts have their own bounded evidence reader. Examples/defaults are
+        # not source configuration references, even if they contain uppercase keys.
+        if contract:
+            continue
+
         # Configuration names are evidence; values (including URLs) stay private.
         for lineno, line in enumerate(text.splitlines(), 1):
             for match in re.finditer(r'\b([A-Z][A-Z0-9_]*)\b', line):
                 key = match.group(1)
+                if configuration_names is not None and (lineno, key) not in configuration_names:
+                    continue
                 if not re.search(r'(?:DATABASE_URL|DATABASE_DSN|DB_DSN|DB_HOST|DB_CONNECTION|REDIS_URL|CACHE_URL|QUEUE_CONNECTION|BROKER_URL|_URL|_ENDPOINT)$', key):
                     continue
                 group = 'databases' if re.search('DATABASE|DB_', key) else 'caches' if re.search('REDIS|CACHE', key) else 'queues' if re.search('QUEUE|BROKER', key) else 'apis'
@@ -263,6 +349,8 @@ def discover(root, files=None):
                         fact('app_servers', server, None, source, lineno)
                 if re.search(r'\b(?:celery|rq|bullmq)\b', line, re.I):
                     fact('workers', 'worker', None, source, lineno, detail='Worker-related source; lifecycle requires inspection.')
+
+    report['environment_names'] = sorted({row['name'] for row in report['environment_evidence']})
 
     # Only exact contradictory major declarations are flagged. Compatible ranges and
     # package-vs-server versions must not become false conflicts.
@@ -336,7 +424,7 @@ def _compose(text, source, report, fact, image):
         if prop:
             section, value = prop.groups()
             if section == 'image':
-                current['image'], current['version'] = image(value, source, lineno)
+                current['image'], current['version'] = image(value, source, lineno, current['name'])
             if section == 'depends_on' and value.startswith('['):
                 for dependency in re.findall(r'[A-Za-z0-9_.-]+', value):
                     _edge(report, current, dependency, source, lineno)
