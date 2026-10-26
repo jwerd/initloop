@@ -178,6 +178,30 @@ def _provenance(report):
             'Setup state: proposed, not adopted, not verified. Adoption alone does not establish verification.']
 
 
+def _repository_lines(stack):
+    evidence = stack.get('repository_evidence', {})
+    lines = ['## Referenced paths, CI and test expectations', '',
+             'These are static pointers, not verified commands or business truth. Follow explicit source references even outside conventional layouts; inspect ambiguities before choosing.', '']
+    for row in evidence.get('references', []):
+        lines.append('- Path literal at ' + _source(row) + '; resolution `' + _text(row['resolution']) +
+                     '`; candidates `' + _text(row['candidates']) + '`; cwd/role inferred, runtime unverified.')
+    for row in evidence.get('tests', []):
+        lines.append('- Test `' + _text(row['name']) + '` at ' + _source(row) + '; assertions `' +
+                     _text([r['kind'] for r in row['assertions']]) + '`; mock references `' + _text(len(row['mocks'])) +
+                     '`; skip/expected-failure references `' + _text(len(row['skips'])) +
+                     '`; collection/execution unknown; class/module/dynamic markers may be omitted. Read inputs, outputs, fixtures and consumers; reconcile stale expectations.')
+    for row in evidence.get('fixtures', []):
+        lines.append('- Fixture declaration `' + _text(row['name']) + '` at ' + _source(row) + '; data/setup relationships unverified.')
+    for workflow in evidence.get('ci_workflows', []):
+        for row in workflow['observations']:
+            fields = {key: value for key, value in row.items() if key not in {'source', 'line', 'state', 'runtime_verified'}}
+            lines.append('- CI declaration at ' + _source(row) + ': `' + _text(fields) + '`; not executed or authorized by discovery.')
+    for row in evidence.get('unknowns', []):
+        lines.append('- Unknown at ' + _source(row) + ': ' + _text(row['detail']))
+    lines.extend(['', 'Missing/stale/dynamic references stay uncertain while independent work proceeds. Only meaningful unresolved intent/conflicts require a precise question citing the competing evidence; preserve the answer as user-confirmed evidence. Mocked/skipped tests do not establish real-provider fidelity. CI presence never authorizes deployment, secret access or tool installation.', ''])
+    return lines
+
+
 def _stack_document(report):
     stack = report.get('stack', {})
     lines = ['# Project stack reference', '',
@@ -234,7 +258,7 @@ def _stack_document(report):
         lines.append('- `' + _text(rel.get('from', '?')) + '` → `' + _text(rel.get('to', '?')) + '` (' + _text(rel.get('kind', 'inferred')) + '); source ' + _source(rel) + '.')
     if not stack.get('relationships'):
         lines.append('- Not established by static evidence; trace the useful workflow through consumers.')
-    lines.extend(['', '## Conflicts and unknowns', ''])
+    lines.extend(['', *_repository_lines(stack), '## Conflicts and unknowns', ''])
     for conflict in stack.get('conflicts', []):
         lines.append('- Conflict: `' + _text(conflict.get('name', '?')) + '`; ' + _text(conflict.get('versions', [])) +
                      '; sources ' + _text(conflict.get('sources', [])) + '; ' + _text(conflict.get('detail', 'Review constraints before choosing a version.')))

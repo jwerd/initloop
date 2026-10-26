@@ -47,10 +47,10 @@ Installation is project-scoped by default. Use `--agent codex` or `--agent claud
 
 ### Pin, update or remove
 
-After alpha.4 is published, pin its tag instead of tracking the default branch (alpha.3 remains the published release until then):
+After alpha.5 is published, pin its tag instead of tracking the default branch (alpha.4 remains the published release until then):
 
 ```sh
-npx skills add https://github.com/jwerd/initloop/tree/v0.1.0-alpha.4/skills/initloop --agent codex
+npx skills add https://github.com/jwerd/initloop/tree/v0.1.0-alpha.5/skills/initloop --agent codex
 ```
 
 For unpinned installations:
