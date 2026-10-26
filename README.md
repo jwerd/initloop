@@ -10,6 +10,7 @@ and prove the useful workflow works. A fresh setup attempt reveals the missing p
 failed checks feed the next repair. It uses the model you already have.
 
 ```mermaid
+%%{init: {"flowchart": {"diagramPadding": 48}}}%%
 flowchart LR
     discover["Discover<br/>stack + gaps"] --> repair["Repair<br/>local setup"]
     repair --> verify["Verify<br/>real workflows"]
