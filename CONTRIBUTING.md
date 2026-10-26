@@ -21,6 +21,8 @@ Report security vulnerabilities privately as described in SECURITY.md. Ordinary 
 
 ## Installation maintenance
 
+Installation is project-scoped by default. Use `--agent codex` or `--agent claude-code` to select directly; add `--global` for user scope. The installer normally symlinks a shared copy; use `--copy` for independent copies. Save local edits before replacing an installation.
+
 ### Pin, update or remove
 
 Pin the alpha instead of tracking the default branch:
