@@ -113,4 +113,35 @@ class DiscoveryIntegrationTests(unittest.TestCase):
         self.assertTrue(any(r['name']=='example' for r in result['tools']))
 
 
+    def test_repository_evidence_is_additive_and_proposals_cite_unconventional_sources(self):
+        self.put('craft/prepare.py','from pathlib import Path\nPath("odd/schema.sql")\n')
+        self.put('odd/schema.sql','create table receipts(id integer);\n')
+        self.put('checks/test_rules.py','def test_quantity():\n assert total(0) == 0\n')
+        report=audit(self.root)
+        evidence=report['stack']['repository_evidence']
+        self.assertTrue(any(r['source']=='craft/prepare.py' for r in evidence['references']))
+        self.assertEqual(evidence['tests'][0]['name'],'test_quantity')
+        self.assertFalse(evidence['tests'][0]['runtime_verified'])
+        self.assertIn('runner_decision',report['stack'])
+        output=Path(self.tmp.name)/'proposal-evidence'
+        propose(self.root,output,'reconcile')
+        reference=(output/'files/docs/initloop-stack.md').read_text()
+        self.assertIn('craft/prepare.py:2',reference)
+        self.assertIn('checks/test_rules.py:1',reference)
+        self.assertFalse(any(c.get('command')=='total' for c in report['commands']))
+
+
+    def test_ci_clues_remain_unverified_and_never_become_command_recommendations(self):
+        self.put('.github/workflows/check.yml','jobs:\n  verify:\n    defaults:\n      run:\n        working-directory: nested\n    steps:\n      - run: python3 craft.py\n')
+        self.put('nested/craft.py','print("synthetic")\n')
+        report=audit(self.root)
+        evidence=report['stack']['repository_evidence']
+        observations=evidence['ci_workflows'][0]['observations']
+        self.assertTrue(any(r['kind']=='script' and r['target']=='nested/craft.py' and r['exists'] for r in observations))
+        self.assertTrue(all(r['runtime_verified'] is False for r in observations))
+        self.assertFalse(any('craft.py' in r['command'] for r in report['commands']))
+        self.put('broken.py','def incomplete(:\n')
+        self.assertTrue(any(isinstance(r,dict) and r['source']=='broken.py' for r in audit(self.root)['stack']['unknowns']))
+
+
 if __name__=='__main__':unittest.main()

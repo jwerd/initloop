@@ -350,6 +350,12 @@ def discover(root, files=None):
                 if re.search(r'\b(?:celery|rq|bullmq)\b', line, re.I):
                     fact('workers', 'worker', None, source, lineno, detail='Worker-related source; lifecycle requires inspection.')
 
+    from .repository_evidence import discover_repository
+    from .ci_source import discover_ci
+    report['repository_evidence'] = discover_repository(files)
+    ci = discover_ci(files)
+    report['repository_evidence']['ci_workflows'] = ci['workflows']
+    report['repository_evidence']['unknowns'].extend(ci['unknowns'])
     report['environment_names'] = sorted({row['name'] for row in report['environment_evidence']})
 
     # Only exact contradictory major declarations are flagged. Compatible ranges and
@@ -385,7 +391,7 @@ def discover(root, files=None):
         reason = 'No published runnable workflow established. Select a suitable supported runner after inspecting prerequisites.'
     report['runner_decision'] = {'status': 'existing_evidence' if preferred else 'choice_required',
                                  'preferred': preferred, 'options': options, 'reason': reason}
-    report['unknowns'] = ['Installed/runtime-observed versions and service connectivity have not been checked.',
+    report['unknowns'] += ['Installed/runtime-observed versions and service connectivity have not been checked.',
                           'Missing evidence is not evidence that an external service is unavailable.',
                           'Lifecycle, seed/reset safety, data persistence and local substitute fidelity require runtime validation.']
     if not preferred:

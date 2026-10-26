@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-alpha.5
+
+Focused evidence-led discovery candidate; publication is separate.
+
+- Follow literal referenced paths beyond conventional layouts and expose source-cited Python test/fixture/assertion/mock/skip pointers without claiming runtime or provider fidelity.
+- Add bounded GitHub Actions clues for working directories, runtime versions, commands, services and artifacts; missing/dynamic/unsupported references remain explicit unknowns. CI declarations never authorize execution or deployment.
+- Guide meaningful conflict clarification, evidence states and reuse of recorded decisions; keep inferred command candidates unverified and existing contracts/report fields compatible.
+
 ## 0.1.0-alpha.4
 
 Focused shutdown/runbook guidance candidate; publication is separate.
