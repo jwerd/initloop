@@ -1,18 +1,18 @@
 <h1><img src="assets/initloop-logo.svg" alt="Initloop" width="480"></h1>
 
-### Clone the repo. Close the gaps. Get it running.
+### Develop locally—even when the dependencies aren’t available.
 
-Missing setup steps. An unreachable database. No seed data. An API you can’t access.
-**Initloop turns those blockers into a working local dev environment.**
+Unreachable database? Missing seed data? An API you can’t access?
+**Initloop helps your coding agent build the local dependencies your app needs.**
 
-It’s a skill for your coding agent: discover what the project needs, repair the gaps,
-and prove the useful workflow works. A fresh setup attempt reveals the missing pieces;
-failed checks feed the next repair. It uses the model you already have.
+It uses schemas, migrations, API contracts, and integration code already in your repo
+to build local databases, seed realistic synthetic data, and run substitutes for external APIs.
+Then it exercises your app against them and repairs what fails—until the useful workflow works.
 
-![Initloop: inspect the repo, fill the gaps, run real workflows, and repeat until the app works locally.](assets/initloop-loop.svg)
+![Initloop: read the app’s contracts, build local dependencies, run real workflows, and feed failed checks into the next repair.](assets/initloop-loop.svg)
 
-**You get:** local services and synthetic data where needed, repeatable dev commands,
-and a runbook grounded in what actually passed. Working native and Compose conventions stay in place.
+**You get:** a working local app, repeatable dev commands, and a verified runbook.
+Existing native and Compose setups stay in place. It uses the model you already have.
 
 ## Get started
 
@@ -37,8 +37,8 @@ Initloop checks setup, useful requests, persistence and the change/test cycle.
 It leaves linked **AGENTS.md / CLAUDE.md, a stack reference and a development runbook**
 so the next session can pick up where you left off.
 
-If a private schema or contract can’t be established, it reports the gap and labels
-any local substitute as provisional.
+Local substitutes reproduce the behavior your app needs. Inferred schemas and API
+simulations are labeled provisional; unknown provider behavior stays explicit.
 
 ---
 
