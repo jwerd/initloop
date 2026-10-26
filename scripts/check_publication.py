@@ -10,7 +10,7 @@ import re
 import subprocess
 
 ROOT_FILES = {'README.md', 'LICENSE', 'VERSION', '.gitignore', 'release.json', 'CHANGELOG.md', 'CONTRIBUTING.md', 'PROVENANCE.md', 'SECURITY.md'}
-ROOT_SCRIPTS = {'check_skill.py', 'build_release.py', 'check_publication.py'}
+ROOT_SCRIPTS = {'check_skill.py', 'build_release.py', 'check_publication.py', 'measure_coverage.py'}
 PRIVATE = re.compile(r'/(?:Users|home)/[^/\s]+/|[A-Za-z]:\\Users\\|dispatch[-_ ]receipt|\b(?:thread|task)[_-]id\s*[:=]', re.I)
 CREDENTIAL = re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\bsk-[A-Za-z0-9_-]{20,}|\b(?:ghp|github_pat)_[A-Za-z0-9_]{20,}|\bAKIA[A-Z0-9]{16}\b|\b(?:password|api[_-]?key|access[_-]?token|secret)\s*[:=]\s*[\"\x27]?[A-Za-z0-9/+_=-]{12,}', re.I)
 
