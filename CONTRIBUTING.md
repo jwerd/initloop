@@ -18,3 +18,34 @@ For behavior changes, preserve a failing test/reproduction before implementation
 Open a feature branch and pull request. Include the problem, resulting behavior, checks and material limits. Maintainers require passing final-state CI and independent review before merging. Local checks are not remote CI; agent review is not a human GitHub approval. Avoid unrelated refactors or new model/authentication clients.
 
 Report security vulnerabilities privately as described in SECURITY.md. Ordinary bugs and feature requests belong in Issues with a minimal synthetic reproduction and redacted logs.
+
+## Installation maintenance
+
+### Pin, update or remove
+
+Pin the alpha instead of tracking the default branch:
+
+```sh
+npx skills add https://github.com/jwerd/initloop/tree/v0.1.0-alpha.1/skills/initloop --agent codex
+```
+
+For unpinned installations:
+
+```sh
+npx skills check
+npx skills update initloop
+npx skills remove initloop
+```
+
+Use the same scope as installation (`--global` for user-level). Removal without `--agent` clears the named skill and its agent links in that scope; agent-specific removal can retain the shared copy for other agents. `skills update` tracks the recorded source; to move a pinned installation to a different release, explicitly run `skills add` with that release URL. Keep local edits before updating; editable skill copies are replaced by installer operations.
+
+### Manual fallback
+
+Download the versioned skill ZIP from [Releases](https://github.com/jwerd/initloop/releases), verify its SHA256 against `SHA256SUMS`, and extract it. Copy the complete `initloop` folder—including `LICENSE`, scripts and references—into **one** supported location:
+
+| Agent | Project scope | User scope |
+|---|---|---|
+| Codex | `.agents/skills/initloop/` | `~/.agents/skills/initloop/` |
+| Claude Code | `.claude/skills/initloop/` | `~/.claude/skills/initloop/` |
+
+Do not overwrite an existing skill without saving local edits. No bespoke installer or npm package is needed.
