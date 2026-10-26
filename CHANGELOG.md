@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-alpha.4
+
+Focused shutdown/runbook guidance candidate; publication is separate.
+
+- Bind stop confirmation to the exact configured endpoint proven reachable before stop, requiring both owned process termination and listener refusal.
+- Clarify direct-child background ownership, separate directory changes from launch, job-control limits, and existing named supervision for multiprocess services.
+- Add executable synthetic regressions for wrong-port false proof, AND-list shell ownership and unrelated listener preservation. No native supervisor or discovery redesign.
+
 ## 0.1.0-alpha.3
 
 Focused discovery and runbook hardening candidate; publication is separate.
