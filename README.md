@@ -6,15 +6,15 @@ Missing setup steps. An unreachable database. No seed data. An API you can’t a
 **Initloop turns those blockers into a working local dev environment.**
 
 It’s a skill for your coding agent: discover what the project needs, repair the gaps,
-and prove the useful workflow works. It uses the model you already have.
+and prove the useful workflow works. A fresh setup attempt reveals the missing pieces;
+failed checks feed the next repair. It uses the model you already have.
 
 ```mermaid
-flowchart TD
-    discover["Discover stack + runner"] --> attempt["Try setup fresh"]
-    attempt --> repair["Find + repair the gaps"]
-    repair --> verify["Verify real workflows"]
-    verify -->|Needs work| repair
-    verify -->|Ready| ready["Working app + runbook"]
+flowchart LR
+    discover["Discover<br/>stack + gaps"] --> repair["Repair<br/>local setup"]
+    repair --> verify["Verify<br/>real workflows"]
+    verify -->|Needs work| discover
+    verify -->|Ready| ready["Working app<br/>+ runbook"]
 ```
 
 **You get:** local services and synthetic data where needed, repeatable dev commands,
