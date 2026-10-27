@@ -101,18 +101,20 @@ def configuration_resources(stack):
     return rows
 
 
-def discover(root, files=None):
+def discover(root, files=None, scan_metadata=None):
     """Return static stack evidence and runner choices; all runtime observations unknown.
 
     files may be the sanitized relative-path/bytes map from workflow._files. When
     omitted that scanner is imported lazily so workflow can call us without a cycle.
     """
     if files is None:
-        from .workflow import _files
-        files = _files(Path(root).resolve(strict=True))
+        from .readonly_scan import scan
+        files, scan_metadata = scan(root)
     report = {'schema_version': 1, **{key: [] for key in _FIELDS},
               'runners': [], 'services': [], 'relationships': [], 'unknowns': [], 'conflicts': [],
               'contracts': [], 'environment_evidence': [], 'environment_names': []}
+    if scan_metadata is not None:
+        report['discovery_scan'] = scan_metadata
     seen = set()
     database_rows = {}
 

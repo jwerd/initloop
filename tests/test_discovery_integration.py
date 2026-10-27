@@ -1,5 +1,6 @@
 """Public discovery evidence stays aligned, bounded, and source-cited."""
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -142,6 +143,18 @@ class DiscoveryIntegrationTests(unittest.TestCase):
         self.assertFalse(any('craft.py' in r['command'] for r in report['commands']))
         self.put('broken.py','def incomplete(:\n')
         self.assertTrue(any(isinstance(r,dict) and r['source']=='broken.py' for r in audit(self.root)['stack']['unknowns']))
+
+
+    @unittest.skipUnless(os.name=='posix','safe descriptor inventory requires POSIX')
+    def test_scan_exclusion_is_visible_in_proposal_provenance(self):
+        self.put('Makefile','test:\n\tpython3 -m unittest\n')
+        (self.root/'convenience-link').symlink_to('not-installed/runner')
+        output=Path(self.tmp.name)/'partial-proposal'
+        propose(self.root,output,'reconcile')
+        reference=(output/'files/docs/initloop-stack.md').read_text()
+        self.assertIn('convenience-link',reference)
+        self.assertIn('symlink_dangling',reference)
+        self.assertIn('partial',reference)
 
 
 if __name__=='__main__':unittest.main()

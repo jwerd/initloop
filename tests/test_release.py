@@ -26,7 +26,7 @@ class ReleaseTests(unittest.TestCase):
         self.skill = self.root / 'skills' / 'sample-skill'
         (self.skill / 'scripts').mkdir(parents=True)
         (self.skill / 'references').mkdir()
-        (self.root / 'VERSION').write_text('0.1.0-alpha.5\n')
+        (self.root / 'VERSION').write_text('0.1.0-alpha.6\n')
         (self.root / 'LICENSE').write_text('Synthetic test license\n')
         (self.skill / 'SKILL.md').write_text('---\nname: sample-skill\ndescription: Example\n---\nPortable example.\n')
         (self.skill / 'scripts' / 'tool.py').write_text('print("example")\n')
@@ -53,7 +53,7 @@ class ReleaseTests(unittest.TestCase):
         with zipfile.ZipFile(first['archive']) as archive:
             self.assertEqual(archive.read('sample-skill/LICENSE'), (self.root / 'LICENSE').read_bytes())
             manifest = json.loads(first['manifest'].read_text())
-            self.assertEqual(manifest['version'], '0.1.0-alpha.5')
+            self.assertEqual(manifest['version'], '0.1.0-alpha.6')
             self.assertEqual(set(archive.namelist()), {item['path'] for item in manifest['files']})
             for item in manifest['files']:
                 self.assertEqual(item['sha256'], hashlib.sha256(archive.read(item['path'])).hexdigest())
