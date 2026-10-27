@@ -14,6 +14,8 @@ A useful partial result can include verified setup/build, local data operations 
 
 ## One precise request when necessary
 
+Separate evidence that would be nice to add from access required for the requested usable outcome. If permitted core checks already establish useful partial progress and a missing input still gates the flow, do not request extra permission merely to certify optional HTTP/transport or full-verification checks. Mark them unverified under the known restriction. If the user explicitly requires a running HTTP service or network behavior, that access may instead be indispensable: prepare the actual minimal request and combine related essential needs. The reason text of a command approval is not an enforcement boundary; never describe a whole-command escalation as a granular host/network grant.
+
 Before asking, collect the observed failure, affected flow, source/config name, what already works and the smallest missing input/access/intent. Combine related requirements without bundling optional permissions. Ask for an existing supported project-local input when that is sufficient rather than broad filesystem/network access. Never collect or print secret values in the report. A denied access scope is evidence, not a challenge: reuse it and stop repeating the operation until scope changes. A prior approval applies only to its action/scope, not all future work.
 
 Escalation disabled does not authorize bypass. Report a blocked operation and its minimal user action/input; do not promise automatic retry or approval. Questions about product intent or a missing input remain legitimate where indispensable. Record actual answers with their scope; simulated evaluation replies must remain labeled, never real user approvals.
