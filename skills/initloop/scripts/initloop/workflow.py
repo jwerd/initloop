@@ -5,34 +5,16 @@ import os
 import re
 import shlex
 import subprocess
+import stat
 from pathlib import Path
 
-_IGNORED = {'.git', 'node_modules', 'vendor', '.venv', 'venv', '__pycache__', '.initloop', 'dist', 'build'}
-_SECRET = re.compile(r'(^\.env($|\.)|secret|credential|\.pem$|\.key$|id_rsa|^\.npmrc$|^auth\.json$)', re.I)
 _INSTRUCTIONS = {'AGENTS.md', 'CLAUDE.md'}
-_MAX = 1024 * 1024
 
 
 def _files(root):
-    """Do not follow links, including directory links, or read credential files."""
-    result = {}
-    for directory, dirs, names in os.walk(root, followlinks=False):
-        relative = Path(directory).relative_to(root).parts
-        dirs[:] = sorted(d for d in dirs if not (d == 'skills' and relative and relative[-1] in {'.agents', '.claude', '.codex'})
-                         and d not in _IGNORED and not _SECRET.search(d)
-                         and not (Path(directory) / d).is_symlink())
-        for name in sorted(names):
-            path = Path(directory) / name
-            is_template=name in {'.env.example','.env.sample','.env.template'}
-            if path.is_symlink() or (_SECRET.search(name) and not is_template) or not path.is_file():
-                continue
-            if path.stat().st_size > _MAX:
-                continue
-            raw = path.read_bytes()
-            # Binary files have no static instruction/contract meaning here.
-            if b'\0' not in raw:
-                result[path.relative_to(root).as_posix()] = raw
-    return result
+    """Compatibility map-only wrapper; public discovery also reports scan limits."""
+    from .readonly_scan import scan
+    return scan(root)[0]
 
 
 def _json(raw):
@@ -47,12 +29,69 @@ def _safe_name(name):
     return isinstance(name, str) and re.fullmatch(r'[A-Za-z0-9_@./:-]{1,100}', name)
 
 
+
+def _git_provenance(root, scan_metadata):
+    """Query only an explicit non-link root marker, never an excluded/ancestor repo.
+
+    A regular .git marker is the normal Git worktree mechanism. This guard does
+    not change snapshot rules or reinterpret worktree metadata as application
+    input. Ambient repository-location overrides are omitted for these queries.
+    """
+    result = {'revision': None, 'dirty': None,
+              'provenance': {'status': 'unavailable', 'source': '.git'}}
+    provenance = result['provenance']
+    if any(row['source'] in {'.', '.git'} for row in scan_metadata['findings']):
+        provenance['reason'] = 'metadata_excluded'
+        return result
+    try:
+        mode = (root / '.git').lstat().st_mode
+    except OSError as error:
+        provenance['reason'] = 'metadata_absent' if isinstance(error, FileNotFoundError) else 'metadata_inaccessible'
+        import errno
+        provenance['errno'] = errno.errorcode.get(error.errno, 'UNKNOWN')
+        return result
+    if stat.S_ISLNK(mode) or not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
+        provenance['reason'] = 'metadata_excluded'
+        return result
+    names = {'GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE',
+             'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES'}
+    provenance['ambient_location_overrides_omitted'] = sorted(names & os.environ.keys())
+    env = {key: value for key, value in os.environ.items() if key not in names}
+    env['GIT_OPTIONAL_LOCKS'] = '0'
+    command = ['git', '-c', 'core.fsmonitor=false', '-C', str(root)]
+    try:
+        head = subprocess.run(command + ['rev-parse', 'HEAD'], capture_output=True, text=True, timeout=5, env=env)
+        if head.returncode != 0 or not re.fullmatch(r'[0-9a-f]{40,64}', head.stdout.strip()):
+            provenance.update(reason='head_unavailable', exit_code=head.returncode)
+            return result
+        result['revision'] = head.stdout.strip()
+        state = subprocess.run(command + ['status', '--porcelain'], capture_output=True, text=True, timeout=5, env=env)
+        if state.returncode:
+            provenance.update(status='partial', reason='status_unavailable', exit_code=state.returncode)
+        else:
+            result['dirty'] = bool(state.stdout)
+            provenance.update(status='observed', reason='root_metadata')
+    except subprocess.TimeoutExpired:
+        provenance['reason'] = 'query_timeout'
+    except (OSError, subprocess.SubprocessError) as error:
+        provenance['reason'] = 'query_unavailable'
+        if isinstance(error, OSError):
+            import errno
+            provenance['errno'] = errno.errorcode.get(error.errno, 'UNKNOWN')
+    return result
+
+
 def audit(root: Path) -> dict:
     root = Path(root).resolve(strict=True)
     if not root.is_dir():
         raise ValueError('project must be a directory')
-    files = _files(root)
-    findings, instructions, commands, services, tools = [], [], [], [], []
+    from .readonly_scan import scan
+    files, scan_metadata = scan(root)
+    findings = [{'code':'discovery_exclusion','path':row['source'],'status':'observed',
+                 'operation':row['operation'],'reason':row['reason'],
+                 **({'errno':row['errno']} if 'errno' in row else {})}
+                for row in scan_metadata['findings']]
+    instructions, commands, services, tools = [], [], [], []
     for rel, raw in files.items():
         path = Path(rel)
         text = raw.decode('utf-8', errors='replace')
@@ -128,21 +167,16 @@ def audit(root: Path) -> dict:
     dependencies = {rel: hashlib.sha256(raw).hexdigest() for rel, raw in files.items()}
     digest = hashlib.sha256(json.dumps(dependencies, sort_keys=True).encode()).hexdigest()
     from .stack import discover, configuration_resources
-    stack = discover(root, files)
-    revision = None
-    dirty = None
-    try:
-        head = subprocess.run(['git', '-c', 'core.fsmonitor=false', '-C', str(root), 'rev-parse', 'HEAD'], capture_output=True, text=True, timeout=5)
-        if head.returncode == 0 and re.fullmatch(r'[0-9a-f]{40,64}', head.stdout.strip()):
-            revision = head.stdout.strip()
-            state = subprocess.run(['git', '-c', 'core.fsmonitor=false', '-C', str(root), 'status', '--porcelain'], capture_output=True, text=True, timeout=5)
-            dirty = bool(state.stdout) if state.returncode == 0 else None
-    except (OSError, subprocess.SubprocessError):
-        pass
+    stack = discover(root, files, scan_metadata=scan_metadata)
+    repository = _git_provenance(root, scan_metadata)
+    if repository['provenance']['status'] != 'observed':
+        findings.append({'code':'git_provenance_unavailable', 'source':'.git', 'status':'observed',
+                         'detail':repository['provenance']['reason']})
     return {'schema_version': 1, 'readiness': 'unverified', 'snapshot_digest': digest,
+            'discovery_scan': scan_metadata,
             'stack': stack, 'environment_names': stack['environment_names'],
             'environment_evidence': stack['environment_evidence'], 'resources': configuration_resources(stack),
-            'repository': {'revision': revision, 'dirty': dirty},
+            'repository': repository,
             'instructions': instructions, 'commands': commands, 'services': services, 'tools': tools,
             'findings': findings, 'dependencies': dependencies,
             'limitations': ['Static discovery does not execute commands or verify service/tool access.',
@@ -172,10 +206,17 @@ def _source(row):
 def _provenance(report):
     repository = report.get('repository', {})
     revision = repository.get('revision') or 'unknown (no readable Git HEAD)'
-    return ['Source snapshot: `' + report['snapshot_digest'] + '`.',
+    scan = report.get('discovery_scan', {})
+    lines = ['Source snapshot: `' + report['snapshot_digest'] + '` (included permitted inputs only).',
             'Source revision: `' + revision + '`; dirty working tree: ' + str(repository.get('dirty')) + '.',
             'Tested revision: not tested. Runtime evidence: none recorded by static discovery.',
-            'Setup state: proposed, not adopted, not verified. Adoption alone does not establish verification.']
+            'Setup state: proposed, not adopted, not verified. Adoption alone does not establish verification.',
+            'Discovery coverage: `' + _text(scan.get('status', 'unknown')) + '`; excluded entries: `' + _text(scan.get('excluded_count', 'unknown')) + '`. Skipped inputs do not establish their contents or runtime readiness.']
+    for row in scan.get('findings', []):
+        lines.append('- Excluded `' + _text(row['source']) + '`; operation `' + _text(row['operation']) +
+                     '`; observed reason `' + _text(row['reason']) + '`' +
+                     ('; error `' + _text(row['errno']) + '`' if row.get('errno') else '') + '.')
+    return lines
 
 
 def _repository_lines(stack):
@@ -384,6 +425,7 @@ def propose(root: Path, destination: Path, mode: str = 'preserve', selected=None
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + '\n')
     manifest_path = destination / 'workflow-manifest.json'
     manifest = {'schema_version': 1, 'snapshot_digest': report['snapshot_digest'],
+                'discovery_scan': report['discovery_scan'],
                 'dependencies': report['dependencies'], 'verification': 'unverified',
                 'discovery': 'static', 'mode': mode, 'repository': report['repository']}
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n')
@@ -425,5 +467,7 @@ def refresh(root: Path, manifest: Path) -> dict:
     return {'status': 'stale' if added or removed or changed else 'unverified',
             'inputs_unchanged': not (added or removed or changed), 'added': added,
             'removed': removed, 'changed': changed, 'revalidation_required': True,
-            'snapshot_digest': current['snapshot_digest'],
-            'detail': 'Input equality is not verification. Re-run affected workflow and harness checks.'}
+            'snapshot_digest': current['snapshot_digest'], 'discovery_scan': current['discovery_scan'],
+            'discovery_scan_changed': (frozen['discovery_scan'] != current['discovery_scan']
+                                       if 'discovery_scan' in frozen else None),
+            'detail': 'Only included permitted inputs were compared. Partial/excluded discovery remains explicit; input equality is not verification. Re-run affected workflow and harness checks.'}

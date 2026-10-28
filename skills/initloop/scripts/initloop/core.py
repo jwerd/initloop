@@ -284,27 +284,29 @@ class Inventory:
         self.root = Path(root).resolve()
 
     def scan(self):
-        components, findings, env, resources, commands = [], [], set(), [], []
-        for name in tracked(self.root):
-            if excluded(name):
-                continue
-            p = safe_path(self.root, name)
-            if not p.is_file() or p.stat().st_size > 1024*1024:
-                continue
+        from .readonly_scan import scan
+        files, scan_metadata = scan(self.root)
+        components, env, resources, commands = [], set(), [], []
+        findings = [{'kind':'discovery-exclusion','evidence':row['source'],'state':'observed',
+                     'operation':row['operation'],'reason':row['reason'],
+                     **({'errno':row['errno']} if 'errno' in row else {})}
+                    for row in scan_metadata['findings']]
+        for name, raw in files.items():
+            p = Path(name)
             if p.name in self.MANIFESTS:
-                components.append({'path':str(p.parent.relative_to(self.root)), 'language':self.MANIFESTS[p.name], 'manifest':name})
+                components.append({'path':str(p.parent), 'language':self.MANIFESTS[p.name], 'manifest':name})
                 findings.append({'kind':'manifest','evidence':name,'state':'observed'})
                 if p.name in {'package.json','composer.json'}:
                     try:
-                        doc=json.loads(p.read_text())
+                        doc=json.loads(raw)
                         if not isinstance(doc,dict) or not isinstance(doc.get('scripts',{}),dict):
                             raise ValueError('invalid scripts manifest')
                         for key in doc.get('scripts',{}):
-                            commands.append({'name':key,'cwd':str(p.parent.relative_to(self.root)),'source':name,'state':'inferred','verified':False})
+                            commands.append({'name':key,'cwd':str(p.parent),'source':name,'state':'inferred','verified':False})
                     except (ValueError,UnicodeError):
                         findings.append({'kind':'invalid-manifest','evidence':name,'state':'observed'})
             if p.name.startswith('.env.'):
-                for line in p.read_text(errors='replace').splitlines():
+                for line in raw.decode(errors='replace').splitlines():
                     match=re.match(r'\s*([A-Z][A-Z0-9_]*)\s*=',line)
                     if match:
                         key=match.group(1); env.add(key)
@@ -314,8 +316,9 @@ class Inventory:
             if p.name in {'artisan','Dockerfile','compose.yaml','compose.yml','docker-compose.yml','Makefile'} or any(x in p.parts for x in ('migrations','routes','seeders','factories')):
                 findings.append({'kind':'workflow-evidence','evidence':name,'state':'observed'})
         from .stack import discover, configuration_resources
-        stack = discover(self.root)
+        stack = discover(self.root, files, scan_metadata=scan_metadata)
         return {'stack': stack, 'schema': 1, 'components': components, 'findings': findings,
+                'discovery_scan': scan_metadata,
                 'environment_names': sorted(env | set(stack['environment_names'])),
                 'environment_evidence': stack['environment_evidence'],
                 'resources': configuration_resources(stack), 'commands': commands,

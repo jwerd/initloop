@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-alpha.6
+
+Focused restricted-access onboarding candidate; publication is separate.
+
+- Use proportional local setup/repair/smoke evidence and genuinely permitted alternatives when helpers or independent contexts are unavailable; retain full verification when requested or required.
+- Continue read-only inventory around excluded internal/dangling/external/cyclic links and access failures with explicit partial provenance. Snapshot/copy/repair/execution safeguards stay stricter.
+- Report verified/unverified/blocked flows with observed reasons and evidenced input names; prepare one minimal indispensable request, reuse scoped decisions/denials and never repackage prohibited actions.
+
 ## 0.1.0-alpha.5
 
 Focused evidence-led discovery candidate; publication is separate.
