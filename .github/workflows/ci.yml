@@ -9,7 +9,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {os: ubuntu-latest, python: '3.9'}
+          # Python 3.9 needs a runner with an available setup-python build.
+          - {os: ubuntu-24.04, python: '3.9'}
           - {os: ubuntu-latest, python: '3.12'}
           - {os: ubuntu-latest, python: '3.13'}
           - {os: macos-latest, python: '3.12'}
