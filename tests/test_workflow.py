@@ -136,6 +136,49 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(set(drift['changed']), {'package.json', 'compose.yaml'})
         self.assertIn('requirements.txt', drift['added'])
         self.assertEqual(manifest.read_bytes(), frozen)
+    def test_refresh_detects_executable_modes_without_reinterpreting_hashes(self):
+        script = self.put('serve.sh', '#!/bin/sh\nexit 0\n')
+        script.chmod(0o644)
+        manifest = Path(propose(self.root, self.out)['manifest_path'])
+        frozen = manifest.read_bytes()
+        baseline = audit(self.root)
+        self.assertEqual(refresh(self.root, manifest)['mode_evidence'], 'observed')
+        for mode in (0o744, 0o654, 0o645):
+            with self.subTest(mode=mode):
+                script.chmod(mode)
+                drift = refresh(self.root, manifest)
+                self.assertEqual(drift['status'], 'stale')
+                self.assertEqual(drift['changed'], ['serve.sh'])
+                self.assertEqual(drift['mode_changed'], ['serve.sh'])
+                self.assertEqual(audit(self.root)['dependencies'], baseline['dependencies'])
+        script.chmod(0o600)
+        self.assertTrue(refresh(self.root, manifest)['inputs_unchanged'])
+        script.chmod(0o755)
+        executable = self.out.parent / 'executable'
+        executable_manifest = Path(propose(self.root, executable)['manifest_path'])
+        script.chmod(0o644)
+        self.assertEqual(refresh(self.root, executable_manifest)['mode_changed'], ['serve.sh'])
+        self.assertEqual(manifest.read_bytes(), frozen)
+
+    def test_legacy_manifest_reports_missing_mode_evidence_and_exclusions_remain_excluded(self):
+        script = self.put('serve.sh', 'exit 0\n')
+        excluded = self.put('.env', 'PASSWORD=do-not-include\n')
+        manifest = Path(propose(self.root, self.out)['manifest_path'])
+        excluded.chmod(0o755)
+        self.assertTrue(refresh(self.root, manifest)['inputs_unchanged'])
+        original = json.loads(manifest.read_text())
+        original.pop('executable_modes', None)
+        manifest.write_text(json.dumps(original))
+        script.chmod(0o755)
+        excluded.chmod(0o755)
+        result = refresh(self.root, manifest)
+        self.assertEqual(result['mode_evidence'], 'unavailable_legacy_manifest')
+        self.assertIsNone(result['mode_changed'])
+        self.assertIn('lacks executable-mode evidence', result['detail'])
+        self.assertNotIn('.env', audit(self.root)['executable_modes'])
+        script.write_text('exit 1\n')
+        self.assertEqual(refresh(self.root, manifest)['changed'], ['serve.sh'])
+
     def test_scoped_policy_and_stale_command_review(self):
         self.put('AGENTS.md', 'Never deploy. Run `npm run absent`.\n')
         self.put('web/AGENTS.md', 'Always deploy.\n')
@@ -172,6 +215,16 @@ class WorkflowTests(unittest.TestCase):
         for value in [[],{'schema_version':1,'dependencies':[]}]:
             manifest.write_text(json.dumps(value))
             with self.assertRaises(ValueError): refresh(self.root,manifest)
+
+    def test_malformed_executable_mode_provenance_is_rejected(self):
+        self.put('serve.sh', 'exit 0\n')
+        manifest = Path(propose(self.root, self.out)['manifest_path'])
+        frozen = json.loads(manifest.read_text())
+        for modes in ([], {}, {'serve.sh': True}, {'serve.sh': -1}, {'serve.sh': 0o644}):
+            with self.subTest(modes=modes):
+                manifest.write_text(json.dumps(dict(frozen, executable_modes=modes)))
+                with self.assertRaisesRegex(ValueError, 'executable-mode'):
+                    refresh(self.root, manifest)
 
     def test_synthetic_environment_template_changes_invalidate_provenance(self):
         self.put('.env.example','DB_CONNECTION=sqlite\n')

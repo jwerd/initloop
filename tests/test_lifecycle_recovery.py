@@ -231,3 +231,64 @@ class RecoveryTests(unittest.TestCase):
             self.assertEqual(json.loads(result['escaped']), {'password': '[REDACTED]', 'count': 7})
         finally:
             self.service.stop()
+
+    def test_supervisor_retains_ownership_and_data_when_group_cleanup_is_unproven(self):
+        from unittest.mock import Mock
+        service = self.service
+        service.root.mkdir(parents=True)
+        service.data.mkdir()
+        (service.data / 'retained').write_text('keep')
+        write_json(service.record, {
+            'purpose': 'initloop-native-service', 'owner': 'a' * 32,
+            'project': str(self.project), 'pid': 123, 'argv': ['synthetic-command'],
+            'started': False, 'launch_state': 'preparing',
+        })
+        process = Mock(pid=456, returncode=0)
+        process.poll.return_value = 0
+        with patch('initloop.lifecycle.os.getpid', return_value=123), \
+                patch('initloop.lifecycle.signal.signal'), \
+                patch('initloop.lifecycle.subprocess.Popen', return_value=process), \
+                patch('initloop.lifecycle.process_token', return_value='birth'), \
+                patch('initloop.lifecycle.remember_group'), \
+                patch('initloop.lifecycle.identity', return_value='identity'), \
+                patch('initloop.native.process_token', return_value='birth', create=True), \
+                patch('initloop.native.os.getpgid', return_value=456), \
+                patch('initloop.native.os.killpg'), \
+                patch('initloop.native.group_members', return_value=[789], create=True), \
+                patch('initloop.native.time.monotonic', side_effect=[0, 4, 5, 8]), \
+                patch('initloop.native.time.sleep'):
+            with self.assertRaises(PolicyError):
+                serve(service.record)
+        row = json.loads(service.record.read_text())
+        self.assertEqual(row['child_pgid'], 456)
+        self.assertEqual(row['child_identity'], 'birth')
+        self.assertEqual(row['launch_state'], 'cleanup-pending')
+        with patch.object(service, '_running', return_value=False), \
+                patch('initloop.lifecycle.group_members', return_value=[789]), \
+                patch('initloop.lifecycle.owned_child', return_value=False):
+            self.assertEqual(service.status()['status'], 'unknown')
+            with self.assertRaises(PolicyError):
+                service.reset()
+            with self.assertRaises(PolicyError):
+                service.start(self.project, self.command)
+            with self.assertRaises(PolicyError):
+                service.stop()
+        self.assertEqual((service.data / 'retained').read_text(), 'keep')
+
+    def test_retained_descendant_birth_identity_can_recover_after_leader_exit(self):
+        from initloop.lifecycle import owned_group
+        row = {'child_pid': 456, 'child_pgid': 456, 'child_identity': 'old-leader',
+               'group_identities': {'789': 'descendant-birth'}}
+        with patch('initloop.lifecycle.owned_child', return_value=False), \
+                patch('initloop.lifecycle.group_members', return_value=[789]), \
+                patch('initloop.lifecycle.process_token', return_value='descendant-birth'), \
+                patch('initloop.lifecycle.os.getpgid', return_value=456):
+            self.assertTrue(owned_group(row))
+        with patch('initloop.lifecycle.owned_child', return_value=False), \
+                patch('initloop.lifecycle.group_members', return_value=[789]), \
+                patch('initloop.lifecycle.process_token', return_value='reused-birth'), \
+                patch('initloop.lifecycle.os.killpg') as signals:
+            self.assertFalse(owned_group(row))
+            with self.assertRaisesRegex(PolicyError, 'identity'):
+                self.service._stop_orphan(row)
+            signals.assert_not_called()

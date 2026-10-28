@@ -98,3 +98,20 @@ The ledger must be outside source/ancestors and remains private to the controlle
 This helper supervises FOREGROUND native processes only. Do not use it for `compose up -d`, daemonizing commands, background launchers or system service management: a stopped launcher is not stopped services. Use the existing runner's lifecycle and exact owned project identity. A slow launch remains owned in `starting` state; duplicate starts and reset remain refused, and stop uses the recorded supervisor. A recorded running process is not application readiness; independently probe business behavior. Persistent logs are private local raw application output (never log credentials); retrieval redacts best effort. Native service execution has host access, not container egress/mount boundaries. Leave requested demos running, publish their exact stop command, and disclose retained resource/data locations.
 
 Shutdown verification must reuse the actual configured endpoint that succeeded before stop, and require owned process termination plus that same listener closed. A stopped launcher, HTTP failure or unused different port is insufficient. For literal shell launch/stop examples and job-control caveats, see [shutdown.md](shutdown.md); named-ledger stop remains the existing foreground-process lifecycle, not a new shell or daemon manager.
+
+Native cleanup proves that the owned group has no live members after termination;
+waiting for its leader alone is insufficient. If cleanup remains unresolved, the
+named lifecycle keeps its group ownership record and blocks reset/restart. It can
+recover a surviving member only when a recorded birth identity still matches;
+otherwise inspect the exact `record` path reported by status before manual recovery.
+Zombies are excluded from live-member checks because they cannot access the data.
+
+Disposable native commands normally remove their working copy automatically. An
+unresolved cleanup instead reports `cleanup: retained`, `outcome: cleanup-pending`
+and exit code 125, with exact `retained_work` and `recovery_record` paths. If another
+error interrupts execution, the error includes those paths. The private recovery
+JSON records the group ID and captured birth identities; it does not authorize a
+blind signal to a saved PID/group. Prove ownership and live-group absence before
+manually removing that exact retained directory. Unresolved work has no automatic
+retention-limit eviction. These controls cover owned foreground process groups;
+daemonized or external services remain outside this controller's scope.

@@ -15,6 +15,7 @@ import uuid
 
 from .core import PolicyError, redact, secret_like, write_json
 from .native import environment, terminate_group
+from .process_groups import group_members, process_token, remember_group
 
 
 def private_open(path, append=False):
@@ -57,59 +58,6 @@ def identity(pid):
     return normalized_identity(process.stdout.strip()) if process.returncode == 0 else ''
 
 
-def process_token(pid):
-    """Kernel birth identity, stable across exec and distinct from a reused PID.
-
-    macOS exposes microsecond creation time through libproc. Linux exposes
-    creation ticks and a boot UUID through procfs. Other POSIX systems retain
-    exact ps identity, so an exec may conservatively require manual recovery.
-    """
-    try:
-        if sys.platform == 'darwin':
-            import ctypes
-
-            class BsdInfo(ctypes.Structure):
-                _fields_ = [('prefix', ctypes.c_uint32 * 12),
-                            ('comm', ctypes.c_char * 16), ('name', ctypes.c_char * 32),
-                            ('middle', ctypes.c_uint32 * 6),
-                            ('seconds', ctypes.c_uint64), ('microseconds', ctypes.c_uint64)]
-
-            library = ctypes.CDLL('/usr/lib/libproc.dylib')
-            library.proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64,
-                                            ctypes.c_void_p, ctypes.c_int]
-            library.proc_pidinfo.restype = ctypes.c_int
-            info = BsdInfo()
-            size = ctypes.sizeof(info)
-            if library.proc_pidinfo(pid, 3, 0, ctypes.byref(info), size) != size:
-                return ''
-            return 'darwin:{}:{}'.format(info.seconds, info.microseconds)
-        if sys.platform.startswith('linux'):
-            fields = Path('/proc/{}/stat'.format(pid)).read_text().rsplit(')', 1)[1].split()
-            boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
-            return 'linux:{}:{}'.format(boot, fields[19])
-        return identity(pid)
-    except (OSError, ValueError, IndexError):
-        return ''
-
-
-def group_members(pgid):
-    """Inspect live members independently of the supervisor and group leader.
-
-    Zombies cannot access retained data and must be reaped by their OS parent.
-    Failure to inspect is an error, never evidence that a group has stopped.
-    """
-    process = subprocess.run(['/bin/ps', '-axo', 'pid=,pgid=,stat='], capture_output=True, text=True)
-    if process.returncode:
-        raise PolicyError('cannot inspect owned process group; cleanup is unproven')
-    members = []
-    for line in process.stdout.splitlines():
-        fields = line.split()
-        if len(fields) == 3 and fields[0].isdigit() and fields[1].isdigit():
-            if int(fields[1]) == pgid and not fields[2].startswith('Z'):
-                members.append(int(fields[0]))
-    return members
-
-
 def owned_child(row):
     pid = row.get('child_pid')
     pgid = row.get('child_pgid')
@@ -120,6 +68,24 @@ def owned_child(row):
         return os.getpgid(pid) == pgid and process_token(pid) == stamp
     except ProcessLookupError:
         return False
+
+
+def owned_group(row):
+    if owned_child(row):
+        return True
+    group = row.get('child_pgid')
+    known = row.get('group_identities', {})
+    if not isinstance(group, int) or group <= 1 or not isinstance(known, dict):
+        return False
+    for pid in group_members(group):
+        stamp = known.get(str(pid))
+        if stamp and process_token(pid) == stamp:
+            try:
+                if os.getpgid(pid) == group:
+                    return True
+            except ProcessLookupError:
+                pass
+    return False
 
 
 class Service:
@@ -163,7 +129,7 @@ class Service:
         if isinstance(group, int) and group > 1:
             if not group_members(group):
                 return 'stopped'
-            return 'orphaned' if owned_child(row) else 'unknown'
+            return 'orphaned' if owned_group(row) else 'unknown'
         # The write-ahead marker precedes Popen. If the supervisor disappeared
         # in the launch/ownership-record gap, there may be an unrecorded child.
         if row.get('launch_state') == 'launching' or row.get('started'):
@@ -176,6 +142,7 @@ class Service:
         return {
             'status': state, 'name': self.name, 'project': row['project'],
             'pid': row.get('pid'), 'child_pid': row.get('child_pid'),
+            'child_pgid': row.get('child_pgid'), 'record': str(self.record),
             'data': str(self.data), 'runner': 'native', 'sandboxed': False,
             'scope': 'owned foreground supervisor/process group only; daemonized or external services are not managed',
             'recovery': ('stop can recover the independently identified child group' if state == 'orphaned' else
@@ -239,13 +206,13 @@ class Service:
             return self.status()
 
     def _stop_orphan(self, row):
-        if not owned_child(row):
+        if not owned_group(row):
             raise PolicyError('owned child identity changed; no process was signalled')
         group = row['child_pgid']
         # Capture live identities before signalling. A dead leader is not proof
         # that its descendants exited; a stale/reused group is never signalled.
         known = {pid: process_token(pid) for pid in group_members(group)}
-        if not owned_child(row):
+        if not owned_group(row):
             raise PolicyError('owned child identity changed; no process was signalled')
         try:
             os.killpg(group, signal.SIGTERM)
@@ -354,30 +321,36 @@ def serve(record):
         row.update(launch_state='launching')
         write_json(record, row)
         process = None
+        known = {}
         try:
             if not stopping:
                 process = subprocess.Popen(row['argv'], cwd=row['project'], env=env,
                                            stdin=subprocess.DEVNULL, stdout=log,
                                            stderr=subprocess.STDOUT, start_new_session=True)
+                known[str(process.pid)] = process_token(process.pid)
                 row.update(started=True, child_pid=process.pid, child_pgid=process.pid,
-                           child_identity=process_token(process.pid), launch_state='running',
+                           child_identity=known[str(process.pid)], launch_state='running',
                            identity=identity(os.getpid()))
                 write_json(record, row)
-                while process.poll() is None and not stopping:
+                while not stopping:
+                    remember_group(process.pid, known, process)
+                    if process.poll() is not None:
+                        break
                     time.sleep(.05)
         finally:
             # Includes launch bookkeeping failure. If SIGKILL prevents this,
             # the write-ahead marker keeps status unknown instead of stopped.
             if process is not None:
                 try:
-                    terminate_group(process)
-                except PermissionError:
-                    # macOS can return EPERM for killpg(..., 0) while a killed
-                    # group disappears. Only suppress it after an independent
-                    # process-table check proves there are no live members.
-                    if group_members(process.pid):
-                        raise
-                    process.wait()
+                    terminate_group(process, known)
+                except (PolicyError, OSError) as error:
+                    # Keep the child/group and captured birth identities after
+                    # leader exit. An unresolved group must block reset/restart.
+                    row.update(pid=None, identity=None, supervisor_token=None,
+                               launch_state='cleanup-pending', group_identities=known,
+                               cleanup_error=redact(str(error)))
+                    write_json(record, row)
+                    raise
             row.update(pid=None, identity=None, supervisor_token=None, started=False, child_pid=None,
                        child_pgid=None, child_identity=None, launch_state='stopped',
                        exit_code=process.returncode if process else None)

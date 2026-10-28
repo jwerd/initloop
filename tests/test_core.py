@@ -4,6 +4,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from initloop.core import Inventory, Run, PolicyError, redact, snapshot, secret_like
 from initloop.backend import DockerBackend
@@ -56,6 +57,60 @@ class CoreTests(unittest.TestCase):
         self.assertIn('.env', result['excluded'])
         self.assertEqual((self.root / '.env').read_text(), 'API_KEY=never-send-this')
         self.assertEqual(dest.stat().st_mode & 0o777,0o755)
+
+    def test_snapshot_binds_all_git_queries_to_selected_project(self):
+        self.track('real.py', 'selected project')
+        subprocess.run(['git', '-C', str(self.root), '-c', 'user.name=Test',
+                        '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'initial'], check=True)
+        head = subprocess.check_output(['git', '-C', str(self.root), 'rev-parse', 'HEAD']).decode().strip()
+        other = Path(self.tmp.name) / 'other'
+        subprocess.run(['git', 'init', '-q', str(other)], check=True)
+        (other / 'scratch.txt').write_text('other project')
+        subprocess.run(['git', '-C', str(other), 'add', '.'], check=True)
+        (self.root / 'scratch.txt').write_text('untracked selected content')
+        overrides = {'GIT_DIR': str(other / '.git'), 'GIT_WORK_TREE': str(other),
+                     'GIT_COMMON_DIR': str(other / '.git'), 'GIT_INDEX_FILE': str(other / '.git/index'),
+                     'GIT_OBJECT_DIRECTORY': str(other / '.git/objects'),
+                     'GIT_ALTERNATE_OBJECT_DIRECTORIES': str(other / '.git/objects')}
+        for index, env in enumerate([overrides] + [{k: v} for k, v in overrides.items()]):
+            with self.subTest(env=env), patch.dict(os.environ, env):
+                dest = Path(self.tmp.name) / ('bound-' + str(index))
+                result = snapshot(self.root, dest)
+                self.assertEqual(result['files'], ['real.py'])
+                self.assertEqual(result['revision'], head)
+                self.assertFalse(result['dirty'])
+                self.assertEqual((dest / 'real.py').read_text(), 'selected project')
+                self.assertFalse((dest / 'scratch.txt').exists())
+        (self.root / 'real.py').write_text('dirty selected project')
+        for staged in (False, True):
+            if staged:
+                subprocess.run(['git', '-C', str(self.root), 'add', '.'], check=True)
+            with patch.dict(os.environ, overrides):
+                with self.assertRaisesRegex(PolicyError, 'include-dirty'):
+                    snapshot(self.root, Path(self.tmp.name) / 'refused')
+                result = snapshot(self.root, Path(self.tmp.name) / ('dirty-' + str(staged)), True)
+                self.assertTrue(result['dirty'])
+                self.assertEqual(result['revision'], head)
+                self.assertEqual((Path(self.tmp.name) / ('dirty-' + str(staged)) / 'real.py').read_text(),
+                                 'dirty selected project')
+
+    def test_snapshot_supports_actual_worktree_and_initial_index_with_overrides(self):
+        self.track('real.py', 'selected project')
+        overrides = {'GIT_INDEX_FILE': str(Path(self.tmp.name) / 'absent-index')}
+        with patch.dict(os.environ, overrides):
+            initial = snapshot(self.root, Path(self.tmp.name) / 'initial')
+        self.assertIsNone(initial['revision'])
+        self.assertFalse(initial['dirty'])
+        self.assertEqual(initial['files'], ['real.py'])
+        subprocess.run(['git', '-C', str(self.root), '-c', 'user.name=Test',
+                        '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'initial'], check=True)
+        worktree = Path(self.tmp.name) / 'worktree'
+        subprocess.run(['git', '-C', str(self.root), 'worktree', 'add', '--detach', str(worktree)],
+                       check=True, capture_output=True)
+        with patch.dict(os.environ, {'GIT_DIR': str(self.root / '.git'), 'GIT_WORK_TREE': str(self.root), **overrides}):
+            result = snapshot(worktree, Path(self.tmp.name) / 'worktree-snapshot')
+        self.assertEqual(result['files'], ['real.py'])
+        self.assertIsNotNone(result['revision'])
 
     def test_reject_symlinks_and_nested_destination(self):
         (self.root / 'escape').symlink_to('/etc/passwd')
