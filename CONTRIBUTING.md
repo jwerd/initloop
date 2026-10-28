@@ -47,19 +47,25 @@ Installation is project-scoped by default. Use `--agent codex` or `--agent claud
 
 ### Pin, update or remove
 
-Pin the published alpha.6 tag instead of tracking the default branch:
+Pin the alpha.7 tag instead of tracking the default branch:
 
 ```sh
-npx skills add https://github.com/jwerd/initloop/tree/v0.1.0-alpha.6/skills/initloop --agent codex
+npx skills add https://github.com/jwerd/initloop/tree/v0.1.0-alpha.7/skills/initloop --agent codex
 ```
 
-For unpinned installations:
+For an unpinned project installation, run from that project:
 
 ```sh
-npx skills check
-npx skills update initloop
-npx skills remove initloop
+npx skills update initloop --project
 ```
+
+For an unpinned user-level installation:
+
+```sh
+npx skills update initloop --global
+```
+
+The command is `npx skills update`, not `npx update`. The explicit scope avoids updating another installation with the same name. To move a pinned installation to alpha.7, rerun the versioned `skills add` command above, adding `--global` for user scope. This selects the new tag rather than following the previously recorded pin. Use `npx skills remove initloop` (plus `--global` for user scope) to remove it.
 
 Use the same scope as installation (`--global` for user-level). Removal without `--agent` clears the named skill and its agent links in that scope; agent-specific removal can retain the shared copy for other agents. `skills update` tracks the recorded source; to move a pinned installation to a different release, explicitly run `skills add` with that release URL. Keep local edits before updating; editable skill copies are replaced by installer operations.
 

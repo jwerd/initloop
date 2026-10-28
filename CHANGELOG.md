@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.0-alpha.7
+
+Focused correctness and recovery release.
+
+- Bind snapshot tracked inputs, dirty state and revision to the selected Git project or worktree.
+- Prove native process-group cleanup before reporting completion; retain unresolved disposable work and recovery records, including interrupted launch/teardown, and block lifecycle reset/restart until cleanup is established.
+- Detect executable-bit drift with additive descriptor-captured provenance; preserve content hashes and explicitly report missing mode evidence in legacy manifests.
+- Clarify project/global updates and explicit repinning to this release.
+
 ## 0.1.0-alpha.6
 
 Focused restricted-access onboarding candidate; publication is separate.
