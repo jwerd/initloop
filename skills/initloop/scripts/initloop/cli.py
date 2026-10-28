@@ -24,6 +24,13 @@ def main(argv=None):
     cleanup=sub.add_parser('cleanup',help='recover only recorded owned containers'); cleanup.add_argument('--ledger',type=Path)
     workflow=sub.add_parser('workflow',help='instruction proposal only, never applies to source'); workflow.add_argument('project',type=Path); workflow.add_argument('--destination',type=Path); workflow.add_argument('--mode',choices=['preserve','reconcile','replace'],default='preserve'); workflow.add_argument('--select',action='append',default=[])
     refresh=sub.add_parser('refresh',help='detect stale evidence; regeneration is not verification'); refresh.add_argument('project',type=Path); refresh.add_argument('--manifest',type=Path,required=True)
+    decisions=sub.add_parser('checkpoint',help='persistent dependency planning only; no setup execution')
+    decisions.add_argument('directory',type=Path)
+    decisions.add_argument('--action',choices=['create','revise','show','investigate','findings','select','review','back','cancel','resume','interactive'],default='show')
+    decisions.add_argument('--project',type=Path); decisions.add_argument('--catalog',type=Path)
+    decisions.add_argument('--dependency',action='append',default=[])
+    decisions.add_argument('--option'); decisions.add_argument('--finding')
+    decisions.add_argument('--affected',action='append',default=[])
     dev=sub.add_parser('dev',help='owned native foreground development lifecycle; not a sandbox')
     dev.add_argument('action',choices=['start','status','logs','stop','reset']); dev.add_argument('--ledger',type=Path,required=True); dev.add_argument('--name',required=True)
     dev.add_argument('--project',type=Path)
@@ -36,7 +43,26 @@ def main(argv=None):
         if args.command in {'execute','baseline','verify'}:
             if args.runner=='docker' and not args.image:raise PolicyError('Docker execution requires --image; choose --runner native explicitly for authorized host execution')
             backend=NativeBackend() if args.runner=='native' else DockerBackend(getattr(args,'run',None)/'resources' if getattr(args,'run',None) else None)
-        if args.command=='audit': result=Inventory(args.project).scan()
+        if args.command=='checkpoint':
+            from .decisions import Checkpoint, interactive
+            if args.action=='create':
+                if not args.project or not args.catalog:raise ValueError('create requires --project and --catalog')
+                cp=Checkpoint.create(args.project,args.directory,json.loads(args.catalog.read_text()))
+            else:cp=Checkpoint(args.directory)
+            if args.action in {'select','findings'} and len(args.dependency)!=1:
+                raise ValueError('select/findings requires exactly one --dependency')
+            if args.action=='revise':
+                if not args.catalog:raise ValueError('revise requires --catalog from reinspection')
+                cp.revise(json.loads(args.catalog.read_text()))
+            elif args.action=='investigate':cp.investigate(args.dependency)
+            elif args.action=='select':cp.select(args.dependency[0],args.option)
+            elif args.action=='findings':cp.findings(args.dependency[0],args.finding,args.affected)
+            elif args.action in {'review','back','cancel','resume'}:getattr(cp,args.action)()
+            elif args.action=='interactive':
+                interactive(cp)
+                return 0
+            result=cp.state
+        elif args.command=='audit': result=Inventory(args.project).scan()
         elif args.command=='begin':
             run=Run.create(args.project,args.runs,json.loads(args.contract.read_text()),args.include_dirty); result={'run':str(run.root),'state':run.state}
         elif args.command=='execute':

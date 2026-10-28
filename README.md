@@ -50,3 +50,5 @@ native lifecycle requires Linux/macOS and runs with host permissions.
 [Helper reference](skills/initloop/references/controller.md) ·
 [Harness support](skills/initloop/references/harnesses.md) ·
 [Security](SECURITY.md) · [Contribute](CONTRIBUTING.md) · [MIT](LICENSE)
+
+Try the [interactive dependency checkpoint demo](skills/initloop/references/dependency-demo.md) from a checkout. It uses labeled synthetic facts and applies no setup.
