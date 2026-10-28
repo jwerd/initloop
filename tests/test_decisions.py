@@ -169,19 +169,19 @@ class DecisionTests(unittest.TestCase):
         self.cp.select('ldap', 'new-local')
         self.assertEqual(self.cp.state['dependencies'][0]['status'], 'selected')
 
-    def test_demo_directory_back_returns_without_option_prompt(self):
-        import importlib.util
+    def test_investigation_callback_back_returns_without_option_prompt(self):
         from initloop.decisions import interactive
-        spec = importlib.util.spec_from_file_location('demo', Path(__file__).resolve().parents[1] / 'skills/initloop/scripts/demo_checkpoint.py')
-        demo = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(demo)
+        self.cp.select('ldap', 'local')
         prompts = []
-        answers = iter(['1', 'back', 'quit'])
+        answers = iter(['1', 'quit'])
         def read(prompt):
             prompts.append(prompt)
             return next(answers)
-        interactive(self.cp, read=read, write=lambda _: None, investigate=demo.investigate)
-        self.assertNotIn('ldap> ', prompts)
+        interactive(self.cp, read=read, write=lambda _: None,
+                    investigate=lambda cp, name, read, write: False)
+        self.assertEqual(prompts, ['checkpoint> ', 'checkpoint> '])
+        self.assertEqual(self.cp.state['phase'], 'overview')
+        self.assertEqual(self.cp.state['dependencies'][0]['selected'], 'local')
 
     def test_cli_persistence_and_errors(self):
         from contextlib import redirect_stdout, redirect_stderr
