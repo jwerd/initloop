@@ -53,11 +53,9 @@ def _git_provenance(root, scan_metadata):
     if stat.S_ISLNK(mode) or not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
         provenance['reason'] = 'metadata_excluded'
         return result
-    names = {'GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE',
-             'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES'}
-    provenance['ambient_location_overrides_omitted'] = sorted(names & os.environ.keys())
-    env = {key: value for key, value in os.environ.items() if key not in names}
-    env['GIT_OPTIONAL_LOCKS'] = '0'
+    from .git_context import LOCATION_OVERRIDES, project_environment
+    provenance['ambient_location_overrides_omitted'] = sorted(LOCATION_OVERRIDES & os.environ.keys())
+    env = project_environment()
     command = ['git', '-c', 'core.fsmonitor=false', '-C', str(root)]
     try:
         head = subprocess.run(command + ['rev-parse', 'HEAD'], capture_output=True, text=True, timeout=5, env=env)
@@ -179,6 +177,7 @@ def audit(root: Path) -> dict:
             'repository': repository,
             'instructions': instructions, 'commands': commands, 'services': services, 'tools': tools,
             'findings': findings, 'dependencies': dependencies,
+            'executable_modes': scan_metadata['executable_modes'],
             'limitations': ['Static discovery does not execute commands or verify service/tool access.',
                             'Harness instruction loading requires a separate live probe.',
                             'Discovery excludes links, credential files, binary files and files over 1 MiB.']}
@@ -426,7 +425,8 @@ def propose(root: Path, destination: Path, mode: str = 'preserve', selected=None
     manifest_path = destination / 'workflow-manifest.json'
     manifest = {'schema_version': 1, 'snapshot_digest': report['snapshot_digest'],
                 'discovery_scan': report['discovery_scan'],
-                'dependencies': report['dependencies'], 'verification': 'unverified',
+                'dependencies': report['dependencies'], 'executable_modes': report['executable_modes'],
+                'verification': 'unverified',
                 'discovery': 'static', 'mode': mode, 'repository': report['repository']}
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n')
     affected = []
@@ -464,10 +464,21 @@ def refresh(root: Path, manifest: Path) -> dict:
     added = sorted(set(after) - set(before))
     removed = sorted(set(before) - set(after))
     changed = sorted(p for p in set(before) & set(after) if before[p] != after[p])
+    modes = frozen.get('executable_modes')
+    if modes is not None and (not isinstance(modes, dict) or set(modes) != set(before) or
+                              any(type(mode) is not int or mode < 0 or mode & ~0o111 for mode in modes.values())):
+        raise ValueError('invalid executable-mode provenance')
+    mode_changed = (sorted(p for p in set(before) & set(after)
+                           if modes[p] != current['executable_modes'][p]) if modes is not None else None)
+    changed = sorted(set(changed) | set(mode_changed or []))
     return {'status': 'stale' if added or removed or changed else 'unverified',
             'inputs_unchanged': not (added or removed or changed), 'added': added,
             'removed': removed, 'changed': changed, 'revalidation_required': True,
+            'mode_changed': mode_changed,
+            'mode_evidence': 'observed' if modes is not None else 'unavailable_legacy_manifest',
             'snapshot_digest': current['snapshot_digest'], 'discovery_scan': current['discovery_scan'],
             'discovery_scan_changed': (frozen['discovery_scan'] != current['discovery_scan']
                                        if 'discovery_scan' in frozen else None),
-            'detail': 'Only included permitted inputs were compared. Partial/excluded discovery remains explicit; input equality is not verification. Re-run affected workflow and harness checks.'}
+            'detail': ('Only included permitted inputs were compared. Partial/excluded discovery remains explicit; input equality is not verification. '
+                       + ('Original provenance lacks executable-mode evidence; only content drift can be compared. ' if modes is None else '')
+                       + 'Re-run affected workflow and harness checks.')}

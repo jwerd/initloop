@@ -85,7 +85,7 @@ def scan(root):
     per-file byte budget remain intentional static scope, not completeness proof.
     """
     files={}
-    metadata={'status':'complete_within_scope','files_read':0,'excluded_count':0,'findings':[],
+    metadata={'status':'complete_within_scope','executable_modes':{},'files_read':0,'excluded_count':0,'findings':[],
         'scope':'Permitted tracked and untracked working-tree regular text files; symlink targets are not read.',
         'limitations':['Read-only inventory only; snapshot/copy/repair/execution retain stricter validation.',
                        'Ignored directories count as one excluded entry; their descendants are not inspected.',
@@ -146,6 +146,7 @@ def scan(root):
             if len(raw)>_MAX or b'\0' in raw:
                 metadata['excluded_count']+=1;continue
             files[source]=raw
+            metadata['executable_modes'][source]=current.st_mode & 0o111
     try:visit(root_fd,PurePosixPath('.'),0)
     finally:os.close(root_fd)
     metadata['files_read']=len(files)

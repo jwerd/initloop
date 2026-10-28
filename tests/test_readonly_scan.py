@@ -139,8 +139,23 @@ class ReadOnlyScanTests(unittest.TestCase):
             return original(name,*args,**kwargs)
         with patch.object(module.os,'open',side_effect=swap):files,meta=self.scan()
         self.assertNotIn('changing.py',files)
+        self.assertNotIn('changing.py',meta['executable_modes'])
         self.assertTrue(any(r['source']=='changing.py' for r in meta['findings']))
         self.assertNotIn('never-read-race',json.dumps(files,default=str))
+
+    def test_executable_mode_comes_from_opened_descriptor(self):
+        import initloop.readonly_scan as module
+        script = self.put('serve.sh', 'exit 0\n')
+        script.chmod(0o644)
+        original = os.open
+        def chmod_before_open(name, *args, **kwargs):
+            if name == 'serve.sh':
+                script.chmod(0o755)
+            return original(name, *args, **kwargs)
+        with patch.object(module.os, 'open', side_effect=chmod_before_open):
+            files, meta = self.scan()
+        self.assertEqual(files['serve.sh'], b'exit 0\n')
+        self.assertEqual(meta['executable_modes']['serve.sh'], 0o111)
 
     def test_missing_root_and_unsupported_descriptor_capability_are_explicit_partial(self):
         import initloop.readonly_scan as module

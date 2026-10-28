@@ -10,6 +10,8 @@ import tempfile
 import time
 import uuid
 
+from .git_context import project_environment
+
 
 class PolicyError(ValueError):
     pass
@@ -182,7 +184,7 @@ def excluded(name):
 
 
 def tracked(root):
-    result = subprocess.run(['git','-c','core.fsmonitor=false','-C',str(root),'ls-files','-z','--cached'], capture_output=True, check=True)
+    result = subprocess.run(['git','-c','core.fsmonitor=false','-C',str(root),'ls-files','-z','--cached'], capture_output=True, check=True, env=project_environment())
     return sorted(set(x for x in result.stdout.decode().split('\0') if x))
 
 
@@ -239,9 +241,9 @@ def snapshot(root, destination, include_dirty=False):
         raise PolicyError('snapshot destination already exists')
     try:
         names = tracked(root)
-        dirty = subprocess.run(['git','-c','core.fsmonitor=false','-C',str(root),'diff','--no-ext-diff','--no-textconv','--name-only'],capture_output=True,check=True).stdout
-        staged = subprocess.run(['git','-c','core.fsmonitor=false','-C',str(root),'diff','--no-ext-diff','--no-textconv','--cached','--name-only'],capture_output=True,check=True).stdout
-        revision_result = subprocess.run(['git','-C',str(root),'rev-parse','--verify','HEAD'],capture_output=True)
+        dirty = subprocess.run(['git','-c','core.fsmonitor=false','-C',str(root),'diff','--no-ext-diff','--no-textconv','--name-only'],capture_output=True,check=True,env=project_environment()).stdout
+        staged = subprocess.run(['git','-c','core.fsmonitor=false','-C',str(root),'diff','--no-ext-diff','--no-textconv','--cached','--name-only'],capture_output=True,check=True,env=project_environment()).stdout
+        revision_result = subprocess.run(['git','-C',str(root),'rev-parse','--verify','HEAD'],capture_output=True,env=project_environment())
         revision = revision_result.stdout.decode().strip() if revision_result.returncode == 0 else None
     except subprocess.CalledProcessError as exc:
         raise PolicyError('source must be a Git repository') from exc

@@ -47,7 +47,7 @@ Installation is project-scoped by default. Use `--agent codex` or `--agent claud
 
 ### Pin, update or remove
 
-After alpha.6 is published, pin its tag instead of tracking the default branch (alpha.5 remains the published release until then):
+Pin the published alpha.6 tag instead of tracking the default branch:
 
 ```sh
 npx skills add https://github.com/jwerd/initloop/tree/v0.1.0-alpha.6/skills/initloop --agent codex
