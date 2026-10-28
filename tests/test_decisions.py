@@ -208,3 +208,138 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(run('--action', 'revise'), 2)
         self.assertEqual(run('--action', 'revise', '--catalog', str(catalog_path)), 0)
         self.assertFalse(Checkpoint(directory).state['applied'])
+
+    def test_accept_recommendations_goes_directly_to_review_without_setup(self):
+        before = (self.project / 'auth.py').read_bytes()
+        result = self.cp.accept_recommendations()
+        self.assertEqual(result['phase'], 'review')
+        self.assertTrue(all(row['selected'] == 'local' and row['status'] == 'selected'
+                            for row in result['dependencies']))
+        self.assertEqual(Checkpoint(self.path).state, result)
+        self.assertFalse(result['applied'])
+        self.assertEqual((self.project / 'auth.py').read_bytes(), before)
+        self.assertEqual(len(list(self.project.iterdir())), 1)
+        self.cp.back()
+        self.cp.select('email', 'corporate')
+        self.cp.accept_recommendations()
+        self.assertEqual(self.cp.state['dependencies'][1]['selected'], 'corporate')
+        self.cp.cancel()
+        with self.assertRaisesRegex(ValueError, 'resume'):
+            self.cp.accept_recommendations()
+        self.cp.resume()
+        self.assertEqual(self.cp.accept_recommendations()['phase'], 'review')
+
+    def test_accept_remaining_recommendations_keeps_choices_and_conflicts(self):
+        self.cp.select('ldap', 'corporate')
+        self.cp.findings('ldap', 'Reporting conflicts with the chosen identity', affected=['reporting'])
+        result = self.cp.accept_recommendations()
+        ldap, email, reporting = result['dependencies']
+        self.assertEqual(ldap['selected'], 'corporate')
+        self.assertEqual(email['selected'], 'local')
+        self.assertIsNone(reporting['selected'])
+        self.assertEqual(reporting['status'], 'blocked')
+        self.assertEqual(result['phase'], 'overview')
+        self.cp.select('reporting', 'corporate')
+        self.assertEqual(self.cp.accept_recommendations()['phase'], 'review')
+
+    def test_missing_or_blocked_recommendations_do_not_prevent_valid_remaining_acceptance(self):
+        rows = catalog()
+        rows[0]['suggested'] = None
+        rows[1]['options'][0]['blocked'] = 'Missing approved transport'
+        cp = Checkpoint.create(self.project, self.path.parent / 'partial', rows)
+        result = cp.accept_recommendations()
+        self.assertEqual(result['phase'], 'overview')
+        self.assertIsNone(result['dependencies'][0]['selected'])
+        self.assertIsNone(result['dependencies'][1]['selected'])
+        self.assertEqual(result['dependencies'][2]['selected'], 'local')
+        # A supported choice can be explicitly selected despite a missing recommendation.
+        cp.select('ldap', 'corporate')
+        rows[1]['options'][0].pop('blocked')
+        cp.revise(rows)
+        self.assertEqual(cp.accept_recommendations()['phase'], 'review')
+        self.assertEqual(cp.state['dependencies'][0]['selected'], 'corporate')
+
+    def test_accept_recommendations_refuses_source_drift_without_guessing(self):
+        self.cp.select('ldap', 'corporate')
+        (self.project / 'auth.py').write_text('# changed LDAP contract\n')
+        with self.assertRaisesRegex(ValueError, 'changed'):
+            self.cp.accept_recommendations()
+        rows = Checkpoint(self.path).state['dependencies']
+        self.assertEqual(rows[0]['selected'], 'corporate')
+        self.assertTrue(all(row['status'] == 'blocked' for row in rows))
+        self.assertTrue(all(row['selected'] is None for row in rows[1:]))
+
+    def test_accept_does_not_reconfirm_stale_explicit_selection(self):
+        self.cp.select('ldap', 'corporate')
+        rows = catalog()
+        rows[0]['options'][1]['impact'] = 'Changed capability requires confirmation'
+        self.cp.revise(rows)
+        result = self.cp.accept_recommendations()
+        self.assertEqual(result['phase'], 'overview')
+        self.assertEqual(result['dependencies'][0]['status'], 'blocked')
+        self.assertEqual(result['dependencies'][0]['selected'], 'corporate')
+        self.assertTrue(all(row['selected'] == 'local' for row in result['dependencies'][1:]))
+
+    def test_first_recommended_action_is_explicit_and_needs_no_investigation(self):
+        from initloop.decisions import interactive
+        answers = iter(['', '0', 'quit'])
+        output = []
+        calls = []
+        def read(_):
+            answer = next(answers)
+            if answer == '0':
+                self.assertTrue(all(row['selected'] is None for row in self.cp.state['dependencies']))
+            return answer
+        interactive(self.cp, read=read, write=output.append,
+                    investigate=lambda *args: calls.append(args))
+        rendered = '\n'.join(output)
+        self.assertLess(rendered.index('0: Accept recommendations and review (Recommended)'), rendered.index('1: Ldap'))
+        self.assertIn('Combined plan', rendered)
+        self.assertEqual(self.cp.state['phase'], 'review')
+        self.assertEqual(calls, [])
+
+    def test_cli_accept_recommendations_persists_combined_review(self):
+        from contextlib import redirect_stdout
+        import io
+        from initloop.cli import main
+        output = io.StringIO()
+        with redirect_stdout(output):
+            status = main(['checkpoint', str(self.path), '--action', 'accept'])
+        self.assertEqual(status, 0)
+        self.assertEqual(json.loads(output.getvalue())['phase'], 'review')
+        self.assertEqual(Checkpoint(self.path).state['phase'], 'review')
+
+    def test_accept_handles_no_known_options_and_omitted_recommendation(self):
+        rows = catalog()
+        rows[0].pop('suggested')
+        rows[0]['options'] = []
+        cp = Checkpoint.create(self.project, self.path.parent / 'unknown', rows)
+        result = cp.accept_recommendations()
+        self.assertEqual(result['dependencies'][0]['status'], 'blocked')
+        self.assertIsNone(result['dependencies'][0]['selected'])
+        self.assertTrue(all(row['selected'] == 'local' for row in result['dependencies'][1:]))
+        self.assertEqual(result['phase'], 'overview')
+        self.assertEqual(Checkpoint(cp.directory).state, result)
+
+    def test_stale_writer_cannot_bulk_overwrite_current_choices(self):
+        stale = Checkpoint(self.path)
+        self.cp.select('ldap', 'corporate')
+        with self.assertRaisesRegex(ValueError, 'reload'):
+            stale.accept_recommendations()
+        rows = Checkpoint(self.path).state['dependencies']
+        self.assertEqual(rows[0]['selected'], 'corporate')
+        self.assertTrue(all(row['selected'] is None for row in rows[1:]))
+
+    def test_interactive_accept_surfaces_only_actual_unresolved_decisions(self):
+        from initloop.decisions import interactive
+        self.cp.select('ldap', 'corporate')
+        self.cp.findings('ldap', 'Need further reporting evidence', affected=['reporting'])
+        answers = iter(['accept', 'quit'])
+        output = []
+        interactive(self.cp, read=lambda _: next(answers), write=output.append)
+        self.assertIn('0: Keep selections, accept remaining recommendations and review (Recommended)', output[0])
+        pending = [line for line in output if line.startswith('Unresolved decisions:')]
+        self.assertEqual(pending, ['Unresolved decisions: reporting'])
+        self.assertEqual(self.cp.state['dependencies'][0]['selected'], 'corporate')
+        self.assertEqual(self.cp.state['dependencies'][1]['selected'], 'local')
+        self.assertEqual(self.cp.state['phase'], 'overview')

@@ -27,8 +27,8 @@ def _catalog(rows):
             raise ValueError('duplicate dependency id')
         names.add(row['id'])
         options = row.get('options')
-        if not isinstance(options, list) or not options:
-            raise ValueError('dependency options required')
+        if not isinstance(options, list):
+            raise ValueError('dependency options list required')
         ids = set()
         for option in options:
             if not isinstance(option, dict) or not all(_text(option.get(k)) for k in
@@ -41,10 +41,19 @@ def _catalog(rows):
             ids.add(option['id'])
             if not isinstance(option.get('evidence'), list) or not option['evidence'] or not all(map(_text, option['evidence'])):
                 raise ValueError('option evidence required; unsupported capabilities must not be offered')
-        if not _text(row.get('suggested')) or row['suggested'] not in ids:
+        if row.get('suggested') is not None and (not _text(row['suggested']) or row['suggested'] not in ids):
             raise ValueError('suggested option must exist')
         if not isinstance(row.get('evidence'), list) or not row['evidence'] or not all(map(_text, row['evidence'])):
             raise ValueError('dependency evidence required')
+
+
+def _recommendation(row):
+    return next((option for option in row['options']
+                 if option['id'] == row.get('suggested') and not option.get('blocked')), None)
+
+
+def _unresolved(state):
+    return [row['id'] for row in state['dependencies'] if row['status'] != 'selected']
 
 
 class Checkpoint:
@@ -63,10 +72,11 @@ class Checkpoint:
             raise ValueError('decision directory already exists; resume it instead')
         _catalog(catalog)
         report = audit(project)
-        rows = [{k: copy.deepcopy(row[k]) for k in ('id', 'label', 'evidence', 'options', 'suggested')}
+        rows = [{k: copy.deepcopy(row.get(k)) for k in ('id', 'label', 'evidence', 'options', 'suggested')}
                 for row in catalog]
         for row in rows:
-            row.update(status='suggested', selected=None, findings=[], blockers=[])
+            row.update(status='suggested' if _recommendation(row) else 'blocked',
+                       selected=None, findings=[], blockers=[])
         directory.mkdir(mode=0o700, parents=True, exist_ok=False)
         write_json(directory / 'decisions.json', {
             'schema': 1, 'project': str(project), 'snapshot_digest': report['snapshot_digest'],
@@ -161,7 +171,9 @@ class Checkpoint:
                 new_option = next((o for o in new['options'] if o['id'] == row['selected']), None)
                 changed = old_option != new_option or row['evidence'] != new['evidence']
                 for key in ('label', 'evidence', 'options', 'suggested'):
-                    row[key] = copy.deepcopy(new[key])
+                    row[key] = copy.deepcopy(new.get(key))
+                if row['selected'] is None and not row['blockers']:
+                    row['status'] = 'suggested' if _recommendation(row) else 'blocked'
                 if drift or (row['selected'] is not None and changed):
                     row['status'] = 'blocked'
                     row['blockers'].append({'from': 'catalog', 'finding': 'Reinspected source or selected capability changed; explicitly reconfirm a supported choice'})
@@ -169,7 +181,7 @@ class Checkpoint:
                          discovery_scan=current['discovery_scan'])
         return self._change('revise-catalog', update)
 
-    def review(self):
+    def _check_source(self):
         # Inventory equality detects included source drift, not provider/harness changes.
         current = audit(Path(self.state['project']))
         if (current['snapshot_digest'] != self.state['snapshot_digest'] or
@@ -181,7 +193,26 @@ class Checkpoint:
                 state.update(phase='overview', investigating=[])
             self._change('source-changed', invalidate)
             raise ValueError('source discovery changed; re-inspect and revise the catalog; choices retained')
-        unresolved = [r['id'] for r in self.state['dependencies'] if r['status'] != 'selected']
+
+    def accept_recommendations(self):
+        """Explicit bulk choice: preserve selections/blockers and review if resolved.
+
+        Unsupported, stale or conflicting decisions remain unresolved. A source
+        scan change makes all recommendations stale until reinspection.
+        """
+        self._check_source()
+        def update(state):
+            for row in state['dependencies']:
+                option = _recommendation(row)
+                if (row['selected'] is None and row['status'] == 'suggested' and
+                        not row['blockers'] and option is not None):
+                    row.update(selected=option['id'], status='selected')
+            state.update(phase='overview' if _unresolved(state) else 'review', investigating=[])
+        return self._change('accept-recommendations', update)
+
+    def review(self):
+        self._check_source()
+        unresolved = _unresolved(self.state)
         if unresolved:
             raise ValueError('unresolved decisions: ' + ', '.join(unresolved))
         def update(state):
@@ -206,9 +237,16 @@ class Checkpoint:
 
 def overview(state):
     lines = ['Dependency checkpoint — ' + state['phase'], 'Planning only. No setup has been applied.']
+    label = ('Keep selections, accept remaining recommendations and review'
+             if any(row['selected'] is not None for row in state['dependencies'])
+             else 'Accept recommendations and review')
+    lines.append('0: ' + label + ' (Recommended)')
     for index, row in enumerate(state['dependencies'], 1):
         lines.append('{}: {} [{}] selected={} suggested={}'.format(
-            index, row['label'], row['status'], row['selected'] or '—', row['suggested']))
+            index, row['label'], row['status'], row['selected'] or '—', row['suggested'] or '—'))
+        if row['selected'] is None and not _recommendation(row):
+            option = next((o for o in row['options'] if o['id'] == row['suggested']), None)
+            lines.append('   Unresolved: ' + (option['blocked'] if option else 'No supported recommendation.'))
         for finding in row['findings']:
             lines.append('   Finding: ' + finding)
         for blocker in row['blockers']:
@@ -234,14 +272,19 @@ def interactive(checkpoint, read=input, write=print, investigate=None):
     cp = checkpoint
     while True:
         write(overview(cp.state))
-        write('Enter dependency numbers (e.g. 1,2) to investigate/revisit; review, back, cancel, resume, or quit.')
+        write('Choose 0 (accept), or optionally investigate/revisit by number (e.g. 1,2); review, back, cancel, resume, quit. Blank input makes no choice.')
         try:
             answer = read('checkpoint> ').strip().lower()
             if answer == 'quit':
                 return
-            if answer in {'review', 'back', 'cancel', 'resume'}:
-                getattr(cp, answer)()
-                if answer == 'review':
+            if answer in {'0', 'accept', 'review', 'back', 'cancel', 'resume'}:
+                if answer in {'0', 'accept'}:
+                    cp.accept_recommendations()
+                    if cp.state['phase'] != 'review':
+                        write('Unresolved decisions: ' + ', '.join(_unresolved(cp.state)))
+                else:
+                    getattr(cp, answer)()
+                if cp.state['phase'] == 'review' and answer in {'0', 'accept', 'review'}:
                     write('Combined plan — inspect every selected impact/access/limit before separate setup authorization:')
                     for row in cp.state['dependencies']:
                         write(row['label'] + ': ' + describe(next(o for o in row['options'] if o['id'] == row['selected'])))
