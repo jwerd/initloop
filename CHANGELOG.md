@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0-alpha.8
+
+Shared dependency decisions before setup.
+
+- Offer explicit **Accept recommendations and review** first, preserving existing choices and accepting supported remaining suggestions without mandatory investigation or automatic setup.
+- Investigate one or several dependencies, retain choices/findings across continuation, revisit selections and review their combined impacts before applying setup.
+- Keep missing, unsupported, conflicting or stale decisions unresolved; revise source-cited capability catalogs without silently overwriting selections.
+- Add a persistent planning-only checkpoint controller and numbered terminal fallback, with host-picker guidance for the invoking harness.
+- Preserve authentication source; require evidence for existing development-login configuration and distinguish local LDAP/synthetic identities from corporate compatibility.
+- Keep private acceptance applications, harnesses and runtime evidence outside the skill package.
+
 ## 0.1.0-alpha.7
 
 Focused correctness and recovery release.
