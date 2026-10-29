@@ -115,3 +115,7 @@ blind signal to a saved PID/group. Prove ownership and live-group absence before
 manually removing that exact retained directory. Unresolved work has no automatic
 retention-limit eviction. These controls cover owned foreground process groups;
 daemonized or external services remain outside this controller's scope.
+
+## Dependency decision planning
+
+Use [the shared checkpoint](dependency-checkpoint.md) before applying unresolved dependency choices. `checkpoint --help` exposes a persistent planning-only controller. Its first recommended action, `--action accept` (interactive `0`), keeps explicit choices, accepts supported remaining recommendations and opens combined review when resolved. Investigation is optional; unresolved blockers remain visible. Acceptance requires explicit submission and applies no setup. The controller is distinct from frozen acceptance runs and workflow proposals. It has no apply operation. The invoking harness supplies inspected capability evidence; its numbered interactive fallback is not a live agent or provider integration test.
